@@ -43,6 +43,7 @@ typedef struct USBInterface
 
 typedef struct USBDevice
 {
+	CH375Context *context;
 	uint8_t connected;
 	uint8_t ready;
 
@@ -57,10 +58,10 @@ typedef struct USBDevice
 } USBDevice;
 
 // transfer api
-
+int ch375_host_control_transfer(CH375Context *context);
 
 // device operation api
-int ch375_host_reset_dev(CH375Context *context, USBDevice *udev);
+int ch375_host_reset_dev(USBDevice *udev);
 int ch375_host_udev_init(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);
 int ch375_host_init(CH375Context *context);

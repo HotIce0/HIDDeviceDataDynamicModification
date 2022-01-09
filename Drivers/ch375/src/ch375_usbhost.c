@@ -11,11 +11,12 @@
 
 #define TRANSFER_BUFLEN 64
 
-int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
+int ch375_host_reset_dev(USBDevice *udev)
 {
     int ret;
     uint8_t conn_status;
     uint8_t speed;
+    CH375Context *ctx = udev->context;
 
     if (udev == NULL) {
         ERROR("param udev can't be NULL");
@@ -24,7 +25,7 @@ int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
 
     udev->ready = 0;
 
-    ret = ch375_test_connect(context, &conn_status);
+    ret = ch375_test_connect(ctx, &conn_status);
     if (ret != CH375_SUCCESS) {
         ERROR("test connect failed, ret=%d", ret);
         goto error;
@@ -34,7 +35,7 @@ int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
         goto disconnect;
     }
 
-    ret = ch375_get_dev_speed(context, &speed);
+    ret = ch375_get_dev_speed(ctx, &speed);
     if (ret != CH375_SUCCESS) {
         ERROR("get dev speed failed, ret=%d", ret);
         goto disconnect;
@@ -47,7 +48,7 @@ int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
         INFO("device speed full");
     }
 
-    ret = ch375_set_usb_mode(context, CH375_USB_MODE_RESET);
+    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_RESET);
     if (ret != CH375_SUCCESS) {
         ERROR("set usbmode 0x%02X for reset device failed, ret=%d",
             CH375_USB_MODE_RESET, ret);
@@ -56,20 +57,20 @@ int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
     // wait 15ms for device reset done, TODO
     HAL_Delay(15);
 
-    ret = ch375_set_usb_mode(context, CH375_USB_MODE_SOF);
+    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_SOF);
     if (ret != CH375_SUCCESS) {
         ERROR("set usbmode 0x%02X for automatic sof generation failed, ret=%d",
             CH375_USB_MODE_SOF, ret);
         goto error;
     }
 
-    ret = ch375_host_wait_device_connect(context, RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS);
+    ret = ch375_host_wait_device_connect(ctx, RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("wait device connect failed, reason=%s ret=%d",
             ret == CH375_HST_ERRNO_TIMEOUT ? "timeout": "unkown",
             ret);
         // set usb mode to 0x05, no sof wait device connect.
-        ret = ch375_set_usb_mode(context, CH375_USB_MODE_NO_SOF);
+        ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_NO_SOF);
         if (ret != CH375_SUCCESS) {
             ERROR("set usb mode=0x%02X failed, ret=%d", CH375_USB_MODE_NO_SOF, ret);
             goto error;
@@ -79,7 +80,7 @@ int ch375_host_reset_dev(CH375Context *context, USBDevice *udev)
 
     HAL_Delay(250); // wait device connection is stable
 
-    ret = ch375_set_dev_speed(context, speed);
+    ret = ch375_set_dev_speed(ctx, speed);
     if (ret != CH375_SUCCESS) {
         ERROR("set device speed(0x%02X) faield, ret=%d", speed, ret);
         goto disconnect;
@@ -114,7 +115,8 @@ int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
         return CH375_HST_ERRNO_PARAM_INVALID;
     }
 
-    ret = ch375_host_reset_dev(context, udev);
+    udev->context = context;
+    ret = ch375_host_reset_dev(udev);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("reset device failed, ret=%d", ret);
         return ret;
@@ -133,8 +135,8 @@ int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
         return CH375_HST_ERRNO_ERROR;
     }
     
+    udev->context = context;
     udev->ep0_maxpack = buf[7];
-
     udev->vid = (buf[9] << 8) | buf[8];
     udev->pid = (buf[11] << 8) | buf[10];
     INFO("device pvid = %04X:%04X", udev->vid, udev->pid);
