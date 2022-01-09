@@ -1,0 +1,1 @@
+#define DEVICE_DESC_LEN 0x12
