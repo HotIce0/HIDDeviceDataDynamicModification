@@ -18,12 +18,12 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include <assert.h>
 #include "main.h"
 #include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <assert.h>
 #define ENABLE_LOG
 // #define ENABLE_DEBUG
 #include "log.h"
@@ -241,8 +241,9 @@ int main(void)
     HAL_GPIO_WritePin(orange_led_GPIO_Port, orange_led_Pin, is_user_btn_down);
     HAL_Delay(100);
   }
-  /* USER CODE END WHILE */
-  /* USER CODE BEGIN 3 */
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
   ch375_close_context(ctx);
   ctx = NULL;
   /* USER CODE END 3 */
