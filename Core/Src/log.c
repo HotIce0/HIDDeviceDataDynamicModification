@@ -29,4 +29,13 @@ void printf2(char *fmt, ...)
     HAL_Delay(100); // wait serial assi to next line
 }
 
-// #endif
+void hex_dump(uint8_t *buf, int len)
+{
+    int i;
+    for (i = 0; i < len; i++) {
+        printf2("0x%02X ", *(buf + i));
+        if (i % 8 == 0) {
+            printf2("\n\r");
+        }
+    }
+}

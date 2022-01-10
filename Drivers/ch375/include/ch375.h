@@ -41,18 +41,35 @@
 #define CH375_USB_DESC_TYPE_DEV_DESC    0x01
 #define CH375_USB_DESC_TYPE_CONFIG_DESC 0x02
 
-#define CH375_USB_SPEED_LOW 0
-#define CH375_USB_SPEED_FULL 1
+#define CH375_USB_SPEED_LOW  1
+#define CH375_USB_SPEED_FULL 0
 
+#define CH375_SET_RETRY_TIMES_ZROE      0x00
+#define CH375_SET_RETRY_TIMES_2MS       0x01
+#define CH375_SET_RETRY_TIMES_INFINITY  0x02
+
+
+static inline uint16_t ch375_cpu_to_le16(const uint16_t x)
+{
+	union {
+		uint8_t  b8[2];
+		uint16_t b16;
+	} _tmp;
+	_tmp.b8[1] = (uint8_t) (x >> 8);
+	_tmp.b8[0] = (uint8_t) (x & 0xff);
+	return _tmp.b16;
+}
+
+#define ch375_le16_to_cpu ch375_cpu_to_le16
 
 // Any Mode
-int ch375_query_int(GPIO_TypeDef *gpio, uint16_t gpio_pin);
-int ch375_wait_int(GPIO_TypeDef *gpio, uint16_t gpio_pin, uint32_t timeout);
+int ch375_query_int(CH375Context *context);
+int ch375_wait_int(CH375Context *context, uint32_t timeout);
 
 int ch375_write_cmd(CH375Context *context, uint8_t cmd);
 int ch375_read_data(CH375Context *context, uint8_t *data);
-int ch375_write_block_data(CH375Context *context, uint8_t *buf, int len);
-int ch375_read_block_data(CH375Context *context, uint8_t *buf, int len, int *actual_len);
+int ch375_write_block_data(CH375Context *context, uint8_t *buf, uint8_t len);
+int ch375_read_block_data(CH375Context *context, uint8_t *buf, uint8_t len, uint8_t *actual_len);
 
 
 int ch375_check_exist(CH375Context *context);
@@ -65,10 +82,14 @@ int ch375_abort_nak(CH375Context *context);
 int ch375_test_connect(CH375Context *context, uint8_t *connect_status);
 int ch375_get_dev_speed(CH375Context *context, uint8_t *speed);
 int ch375_set_dev_speed(CH375Context *context, uint8_t speed);
-int ch375_get_descriptor(CH375Context *context, uint8_t desc_type, uint8_t *buf, int len, int *actual_len);
 
+/**
+ * @brief 
+ * @param context 
+ * @param times CH375_SET_RETRY_TIMES_ZROE, CH375_SET_RETRY_TIMES_2MS, CH375_SET_RETRY_TIMES_INFINITY
+ */
 int ch375_set_retry(CH375Context *context, uint8_t times);
-int ch375_send_token(CH375Context *context, uint8_t pid, uint8_t ep, uint8_t tog);
+int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid);
 
 
 void *ch375_get_priv(CH375Context *context);

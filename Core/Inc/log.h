@@ -28,4 +28,5 @@ extern UART_HandleTypeDef *g_uart_log;
 
 void printf2(char *fmt, ...);
 
+void hex_dump(uint8_t *buf, int len);
 // #endif /* __LOG_H */

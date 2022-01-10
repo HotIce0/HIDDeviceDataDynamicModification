@@ -7,7 +7,7 @@
 #include "log.h"
 #include "ch375.h"
 
-#define WAIT_INT_TIMEOUT_MS (10 * 1000)
+#define WAIT_INT_TIMEOUT_MS (2 * 1000)
 
 /**
  * @brief commands
@@ -24,8 +24,6 @@
 #define	CH375_CMD_UNLOCK_USB 0x23		/* 设备方式: 释放当前USB缓冲区 */
 #define	CH375_CMD_RD_USB_DATA0 0x27			/* 从当前USB中断的端点缓冲区读取数据块 */
 #define	CH375_CMD_RD_USB_DATA 0x28		/* 从当前USB中断的端点缓冲区读取数据块, 并释放缓冲区, 相当于 CMD_RD_USB_DATA0 + CMD_UNLOCK_USB */
-#define	CH375_CMD_WR_USB_DATA3 0x29			/* 设备方式: 向USB端点0的发送缓冲区写入数据块 */
-#define	CH375_CMD_WR_USB_DATA5 0x2A			/* 设备方式: 向USB端点1的发送缓冲区写入数据块 */
 #define	CH375_CMD_WR_USB_DATA7 0x2B			/* 向USB端点2或者主机端点的发送缓冲区写入数据块 */
 #define CH375_CMD_GET_DESC  0x46
 #define	CH375_CMD_ISSUE_TKN_X 0x4E			/* 主机方式: 发出同步令牌, 执行事务, 该命令可代替 CMD_SET_ENDP6/CMD_SET_ENDP7 + CMD_ISSUE_TOKEN */
@@ -108,20 +106,19 @@ int ch375_read_data(CH375Context *context, uint8_t *data)
  * 
  * @param context 
  * @param buf 
- * @param len max value is 64
+ * @param len
  * @return int 
  */
-int ch375_write_block_data(CH375Context *context, uint8_t *buf, int len)
+int ch375_write_block_data(CH375Context *context, uint8_t *buf, uint8_t len)
 {
     int ret;
-    int offset;
-
-    if (len > 64) {
-        ERROR("write block data len is max than 64");
-        return CH375_PARAM_INVALID;
-    }
+    uint8_t offset;
 
     ret = ch375_write_cmd(context, CH375_CMD_WR_USB_DATA7);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
+    }
+    ret = ch375_write_data(context, len);
     if (ret != CH375_SUCCESS) {
         return CH375_WRITE_CMD_FAILD;
     }
@@ -144,9 +141,9 @@ int ch375_write_block_data(CH375Context *context, uint8_t *buf, int len)
  * @param context 
  * @param buf 
  * @param len must be greater than 64, avoid overflow
- * @return int (actual type is uint8_t)
+ * @return uint8_t
  */
-int ch375_read_block_data(CH375Context *context, uint8_t *buf, int len, int *actual_len)
+int ch375_read_block_data(CH375Context *context, uint8_t *buf, uint8_t len, uint8_t *actual_len)
 {
     int ret;
     uint8_t data_len;
@@ -183,8 +180,8 @@ int ch375_read_block_data(CH375Context *context, uint8_t *buf, int len, int *act
         offset++;
         residue_len--;
     }
-
-    *actual_len = data_len;
+    DEBUG("actual_len=%d", offset);
+    *actual_len = offset;
     return CH375_SUCCESS;
 }
 
@@ -211,21 +208,22 @@ int ch375_get_version(CH375Context *context, uint8_t *version)
     return CH375_SUCCESS;
 }
 
-int ch375_query_int(GPIO_TypeDef *gpio, uint16_t gpio_pin)
+int ch375_query_int(CH375Context *context)
 {
-    uint8_t val = HAL_GPIO_ReadPin(gpio, gpio_pin);
-    return val == 0 ? 1 : 0;
+    return context->query_int(context);
 }
 
-int ch375_wait_int(GPIO_TypeDef *gpio, uint16_t gpio_pin, uint32_t timeout)
+int ch375_wait_int(CH375Context *context, uint32_t timeout)
 {
-    int cnt;
+    uint32_t cnt;
 
     for (cnt = 0; cnt < timeout; cnt++) {
-        if (ch375_query_int(gpio, gpio_pin)) {
+        if (ch375_query_int(context)) {
+            DEBUG("55");
             return CH375_SUCCESS;
         }
         HAL_Delay(1);
+        DEBUG("5");
     }
     return CH375_TIMEOUT;
 }
@@ -344,75 +342,6 @@ int ch375_set_dev_speed(CH375Context *context, uint8_t speed)
     return CH375_SUCCESS;
 }
 
-#define usb1_int_Pin GPIO_PIN_15
-#define usb1_int_GPIO_Port GPIOE
-
-/**
- * @brief 
- * 
- * @param context 
- * @param desc_type CH375_USB_DESC_TYPE_DEV_DESC, CH375_USB_DESC_TYPE_CONFIG_DESC
- * @param buf 
- * @param len 
- * @return int 
- */
-int ch375_get_descriptor(CH375Context *context, uint8_t desc_type, uint8_t *buf, int len, int *actual_len)
-{
-    int ret;
-    uint8_t status;
-
-    if (desc_type != CH375_USB_DESC_TYPE_DEV_DESC &&
-        desc_type != CH375_USB_DESC_TYPE_CONFIG_DESC) {
-        ERROR("param desc_type invalid");
-        return CH375_PARAM_INVALID;
-    }
-
-    if (buf == NULL) {
-        ERROR("param buf can't be NULL");
-        return CH375_PARAM_INVALID;
-    }
-
-    if (len < 64) {
-        ERROR("read buffer must be greater than 64, avoid overflow");
-        return CH375_PARAM_INVALID;
-    }
-
-    if (actual_len == NULL) {
-        ERROR("param actual_len can't be NULL");
-        return CH375_PARAM_INVALID;
-    }
-
-    ret = ch375_write_cmd(context, CH375_CMD_GET_DESC);
-    if (ret != CH375_SUCCESS) {
-        return CH375_WRITE_CMD_FAILD;
-    }
-
-    ret = ch375_write_data(context, desc_type);
-    if (ret != CH375_SUCCESS) {
-        return CH375_WRITE_CMD_FAILD;
-    }
-
-    ret = ch375_wait_int(usb1_int_GPIO_Port, usb1_int_Pin, WAIT_INT_TIMEOUT_MS);
-    if (ret == CH375_TIMEOUT) {
-        ERROR("get descriptor wait int timeout");
-        return CH375_ERROR;
-    }
-    ret = ch375_get_status(context, &status);
-    if (ret != CH375_SUCCESS) {
-        ERROR("get statsus failed, ret=%d", ret);
-        return CH375_ERROR;
-    }
-    DEBUG("cmd get desc, status=0x%02X", status);
-
-    ret = ch375_read_block_data(context, buf, len, actual_len);
-    if (ret != CH375_SUCCESS) {
-        ERROR("read descriptor failed");
-        return CH375_READ_DATA_FAILD;
-    }
-
-    return CH375_SUCCESS;
-}
-
 /**
  * @brief 
  * 
@@ -469,8 +398,10 @@ int ch375_get_status(CH375Context *context, uint8_t *status)
     if (ret != CH375_SUCCESS) {
         return CH375_WRITE_CMD_FAILD;
     }
+
     ret = ch375_read_data(context, &buf);
     if (ret != CH375_SUCCESS) {
+        ERROR("read data failed");
         return CH375_READ_DATA_FAILD;
     }
 
@@ -525,31 +456,35 @@ int ch375_set_retry(CH375Context *context, uint8_t times)
     return CH375_SUCCESS;
 }
 
-int ch375_send_token(CH375Context *context, uint8_t pid, uint8_t ep, uint8_t tog)
+int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid)
 {
     int ret;
     uint8_t tog_val;
     uint8_t ep_pid;
     uint8_t status;
 
+    // 7bits: in ep tog, 6bits: out ep tog, 5~0bits: must be zero
+    tog_val = tog ? 0xC0: 0x00;
+    // 7~4bits: ep, 3~0bits: pid
+    ep_pid = ((0xF & ep) << 4) | (0xF & pid);
+    DEBUG("togval=0x%02X", tog_val);
+    DEBUG("ep_pid=0x%02X", ep_pid);
+
     ret = ch375_write_cmd(context, CH375_CMD_ISSUE_TKN_X);
     if (ret != CH375_SUCCESS) {
         return CH375_WRITE_CMD_FAILD;
     }
-    // 7bits: in ep tog, 6bits: out ep tog, 5~0bits: must be zero
-    tog_val = tog ? 0xC0: 0x00;
     ret = ch375_write_data(context, tog_val);
     if (ret != CH375_SUCCESS) {
         return CH375_WRITE_CMD_FAILD;
-    }
-    // 7~4bits: ep, 3~0bits: pid
-    ep_pid = ((0xF & ep) << 4) | (0xF & pid);
+    }    
     ret = ch375_write_data(context, ep_pid);
     if (ret != CH375_SUCCESS) {
         return CH375_WRITE_CMD_FAILD;
     }
+
     // wait intrrupt, get result of token send.
-    ret = ch375_wait_int(usb1_int_GPIO_Port, usb1_int_Pin, WAIT_INT_TIMEOUT_MS);
+    ret = ch375_wait_int(context, WAIT_INT_TIMEOUT_MS);
     if (ret != CH375_SUCCESS) {
         return CH375_TIMEOUT;
     }
@@ -557,6 +492,7 @@ int ch375_send_token(CH375Context *context, uint8_t pid, uint8_t ep, uint8_t tog
     if (ret != CH375_SUCCESS) {
         return CH375_ERROR;
     }
+    
     if (status != CH375_USB_INT_SUCCESS) {
         ERROR("send token(tog=0x%02X, ep_pid=0x%02X) excute failed, status=0x%02X", tog_val, ep_pid, status);
         return CH375_ERROR;

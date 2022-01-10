@@ -87,6 +87,16 @@ typedef struct CH375Priv {
   uint16_t gpio_pin_int;
 } CH375Priv;
 
+void delay_us(uint16_t time)
+{    
+   uint16_t i=0;  
+   while(time--)
+   {
+      i=10;  //自己定义
+      while(i--) ;    
+   }
+}
+
 static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
 {
   assert(context);
@@ -94,10 +104,11 @@ static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
   uint16_t buf = CH375_CMD(cmd);
   uint8_t status;
 
-  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, HAL_MAX_DELAY);
+  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, 500);
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
+  delay_us(2);
   DEBUG("send cmd: origin data=0x%04X", buf);
   return CH375_SUCCESS;
 }
@@ -109,10 +120,11 @@ static int ch375_func_write_data(CH375Context *context, uint8_t data)
   uint16_t buf = CH375_DATA(data);
   uint8_t status;
 
-  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, HAL_MAX_DELAY);
+  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, 500);
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
+  delay_us(1);
   DEBUG("send cmd: origin data=0x%04X", buf);
   return CH375_SUCCESS;
 }
@@ -124,7 +136,7 @@ static int ch375_func_read_data(CH375Context *context, uint8_t *data)
   uint16_t buf = 0;
   uint8_t status;
 
-  status = HAL_UART_Receive(priv->huart, (uint8_t *)&buf, 1, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(priv->huart, (uint8_t *)&buf, 1, 500);//HAL_MAX_DELAY
   if (status != HAL_OK) {
       ERROR("uart receive failed %d", status);
       return CH375_ERROR;
@@ -138,7 +150,7 @@ static int ch375_func_read_data(CH375Context *context, uint8_t *data)
 static int ch375_func_query_int(CH375Context *context)
 {
   assert(context);
-  CH375Priv *priv = ch375_get_priv(context);
+  CH375Priv *priv = (CH375Priv *)ch375_get_priv(context);
   uint8_t val = HAL_GPIO_ReadPin(priv->gpio_int, priv->gpio_pin_int);
   return val == 0 ? 1 : 0;
 }
@@ -160,6 +172,7 @@ int main(void)
   priv.huart = &huart3;
   priv.gpio_int = usb1_int_GPIO_Port;
   priv.gpio_pin_int = usb1_int_Pin;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -198,7 +211,7 @@ int main(void)
 #ifdef ENABLE_LOG
   g_uart_log = &huart4;
 #endif
-
+  
   ret = ch375_host_init(ctx);
   if (ret != CH375_HST_ERRNO_SUCCESS) {
     ERROR("ch375 init host on USART3 failed, %d\n", ret);
@@ -270,9 +283,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 192;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV6;
-  RCC_OscInitStruct.PLL.PLLQ = 8;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -283,10 +296,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
     Error_Handler();
   }

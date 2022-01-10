@@ -58,9 +58,20 @@ typedef struct USBDevice
 } USBDevice;
 
 // transfer api
-int ch375_host_control_transfer(CH375Context *context);
+int ch375_host_control_transfer(USBDevice *udev,
+	uint8_t request_type, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
+	uint8_t *data, uint16_t wLength, int *actual_length, uint32_t timeout);
+
+int ch375_host_bulk_transfer(USBDevice *udev,
+	uint8_t ep, uint8_t *data, int length,
+	int *actual_length, uint32_t timeout);
+
+int ch375_host_interrupt_transfer(USBDevice *udev,
+	uint8_t ep, uint8_t *data, int length,
+	int *actual_length, uint32_t timeout);
 
 // device operation api
+
 int ch375_host_reset_dev(USBDevice *udev);
 int ch375_host_udev_init(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);
