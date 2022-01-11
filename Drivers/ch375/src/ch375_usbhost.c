@@ -1,10 +1,11 @@
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define ENABLE_LOG
 // #define ENABLE_DEBUG
 #include "log.h"
 
-#include "usb.h"
 #include "ch375.h"
 #include "ch375_usbhost.h"
 
@@ -14,7 +15,8 @@
 #define RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS 1000
 #define TRANSFER_TIMEOUT 5000
 
-#define TRANSFER_BUFLEN 64
+#define USB_DEFAULT_ADDRESS 2
+#define USB_DEFAULT_EP0_MAX_PACKSIZE 8
 
 inline static void fill_control_setup(uint8_t *buf, 
     uint8_t request_type, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength)
@@ -27,10 +29,6 @@ inline static void fill_control_setup(uint8_t *buf,
     cs->wIndex = ch375_cpu_to_le16(wIndex);
     cs->wLength = ch375_cpu_to_le16(wLength);
 }
-
-// static int get_ep(USBDevice *udev)
-// {
-// }
 
 int ch375_host_control_transfer(USBDevice *udev,
 	uint8_t request_type, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
@@ -49,6 +47,10 @@ int ch375_host_control_transfer(USBDevice *udev,
     }
     if (udev->context == NULL) {
         ERROR("param udev->context can't be NULL");
+        return CH375_HST_ERRNO_PARAM_INVALID;
+    }
+    if (data == NULL && wLength != 0) {
+        ERROR("param data, wLength, is invalied");
         return CH375_HST_ERRNO_PARAM_INVALID;
     }
     ctx = udev->context;
@@ -143,11 +145,130 @@ int ch375_host_control_transfer(USBDevice *udev,
     return CH375_HST_ERRNO_SUCCESS;
 }
 
+// static int get_ep(USBDevice *udev, int ep)
+// {
+
+// }
+
+static void parser_endpoint_descriptor(USBInterface *interface, USBEndpointDescriptor *desc)
+{
+    assert(interface);
+    assert(desc);
+
+    USBEndpoint *ep = &interface->endpoint[interface->endpoint_cnt];
+    ep->ep_num = desc->bEndpointAddress;
+    ep->tog = 0;
+    ep->attr = desc->bmAttributes;
+    ep->maxpack = ch375_le16_to_cpu(desc->wMaxPacketSize);
+    ep->interval = desc->bInterval;
+
+    interface->endpoint_cnt++;
+}
+
+static void parser_interface_descriptor(USBDevice *udev, USBInterfaceDescriptor *desc)
+{
+    assert(udev);
+    assert(desc);
+
+    USBInterface *interface = &udev->interface[udev->interface_cnt];
+    interface->interface_num = desc->bInterfaceNumber;
+    interface->interface_class = desc->bInterfaceClass;
+    interface->subclass = desc->bInterfaceSubClass;
+    interface->protocol = desc->bInterfaceProtocol;
+
+    udev->interface_cnt++;
+}
+
+static int parser_config_descriptor(USBDevice *udev)
+{
+    USBDescriptor *desc = (USBDescriptor *)udev->raw_conf_desc;
+    void *raw_conf_desc_end = (uint8_t *)udev->raw_conf_desc + udev->raw_conf_desc_len;
+    
+    while ((void *)desc < raw_conf_desc_end) {
+        // first run to skip configration descriptor.
+        desc = (USBDescriptor *)((uint8_t *)desc + desc->bLength);
+
+        switch (desc->bDesriptorType) {
+            case USB_DT_INTERFACE: {
+                (void)parser_interface_descriptor(udev, (USBInterfaceDescriptor *)desc);
+                break;
+            }
+            case USB_DT_ENDPOINT: {
+                uint8_t last_interface_idx;
+                if (udev->interface_cnt == 0) {
+                    ERROR("invalid config descriptor, the endpoint desc is not behind the interface desc");
+                    return CH375_HST_ERRNO_ERROR;
+                }
+                last_interface_idx = udev->interface_cnt - 1;
+                (void)parser_endpoint_descriptor(&udev->interface[last_interface_idx], (USBEndpointDescriptor *)desc);
+                break;
+            }
+            default: {
+                break;
+            }
+        }
+    }
+    return CH375_HST_ERRNO_SUCCESS;
+}
+
+static int get_config_descriptor(USBDevice *udev, uint8_t *buf, uint16_t len)
+{
+    assert(udev);
+    assert(buf);
+    
+    int actual_len = 0;
+    int ret;
+
+    assert(len >= sizeof(USBConfigDescriptor));
+
+    ret = ch375_host_control_transfer(udev,
+        USB_ENDPOINT_IN | USB_REQUEST_TYPE_STANDARD | USB_RECIPIENT_DEVICE,
+        USB_REQUEST_GET_DESCRIPTOR,
+        USB_DT_CONFIG << 8, 0,
+        buf, len, &actual_len, TRANSFER_TIMEOUT);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("control transfer failed, ret=%d", ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+    if (actual_len < len) {
+        ERROR("no enough data");
+        return CH375_HST_ERRNO_ERROR;
+    }
+    return CH375_HST_ERRNO_SUCCESS;
+}
+
+static int ch375_set_dev_address(USBDevice *udev, uint8_t addr)
+{
+    assert(udev);
+    assert(addr != 0);
+
+    int ret;
+    // send setup of set_address to device
+    ret = ch375_host_control_transfer(udev,
+        USB_ENDPOINT_OUT | USB_REQUEST_TYPE_STANDARD | USB_RECIPIENT_DEVICE,
+        USB_REQUEST_SET_ADDRESS,
+        addr, 0, NULL, 0, NULL, TRANSFER_TIMEOUT);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("control transfer failed, ret=%d", ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+
+    // tell CH375 the address of device
+    ret = ch375_set_usb_addr(udev->context, addr);
+    if (ret != CH375_SUCCESS) {
+        ERROR("set ch375 usb addr(0x%02X) failed, ret=%d", addr, ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+
+    return CH375_HST_ERRNO_SUCCESS;
+}
+
 static int get_device_descriptor(USBDevice *udev, uint8_t *buf)
 {
     assert(buf);
     int actual_len = 0;
     int ret;
+    USBDeviceDescriptor *dev_desc = (USBDeviceDescriptor *)buf;
     
     ret = ch375_host_control_transfer(udev,
         USB_ENDPOINT_IN | USB_REQUEST_TYPE_STANDARD | USB_RECIPIENT_DEVICE,
@@ -159,8 +280,14 @@ static int get_device_descriptor(USBDevice *udev, uint8_t *buf)
         ERROR("control transfer failed, ret=%d", ret);
         return CH375_HST_ERRNO_ERROR;
     }
+
     if (actual_len < sizeof(USBDeviceDescriptor)) {
         ERROR("no enough data");
+        return CH375_HST_ERRNO_ERROR;
+    }
+    if (dev_desc->bDescriptorType != USB_DT_DEVICE) {
+        ERROR("receive invalid deivce descriptor, desc_type=0x%02X, expect=0x%02X",
+            dev_desc->bDescriptorType, USB_DT_DEVICE);
         return CH375_HST_ERRNO_ERROR;
     }
     return CH375_HST_ERRNO_SUCCESS;
@@ -263,38 +390,94 @@ disconnect:
 
 int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
 {
-    USBDeviceDescriptor dev_desc = {0};
+    USBConfigDescriptor short_conf_desc = {0};
+    uint16_t conf_total_len = 0;
     int ret;
+    int i;
+    uint8_t ep_cnt = 0;
 
     if (udev == NULL) {
         ERROR("param udev can't be NULL");
         return CH375_HST_ERRNO_PARAM_INVALID;
     }
-
+    
+    memset(udev, 0, sizeof(USBDevice));
     udev->context = context;
+    udev->ep0_maxpack = USB_DEFAULT_EP0_MAX_PACKSIZE;
+
     ret = ch375_host_reset_dev(udev);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("reset device failed, ret=%d", ret);
         return ret;
     }
-    
-    INFO("ready to get device descriptor");
 
-    ret = get_device_descriptor(udev, (uint8_t *)&dev_desc);
+    INFO("ready to get device descriptor");
+    ret = get_device_descriptor(udev, (uint8_t *)&udev->raw_dev_desc);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("get device descriptor failed, ret=%d", ret);
-        return CH375_HST_ERRNO_ERROR;
+        goto failed;
+    }
+
+    udev->ep0_maxpack = udev->raw_dev_desc.bMaxPacketSize0;
+    udev->vid = ch375_le16_to_cpu(udev->raw_dev_desc.idVendor);
+    udev->pid = ch375_le16_to_cpu(udev->raw_dev_desc.idProduct);
+    
+    INFO("device pvid = %04X:%04X", udev->vid, udev->pid);
+    INFO("ep 0 max packsize = %d", (int)udev->ep0_maxpack);
+
+    INFO("ready to set address");
+    // set device address
+    ret = ch375_set_dev_address(udev, USB_DEFAULT_ADDRESS);
+    if (ret != CH375_HST_ERRNO_SUCCESS)  {
+        ERROR("set device address failed, ret=%d", ret);
+        goto failed;
     }
     
-    udev->context = context;
-    udev->ep0_maxpack = dev_desc.bMaxPacketSize0;
+    INFO("ready to get config descriptor");
+    // get short config descriptor for wTotalLength
+    ret = get_config_descriptor(udev, (uint8_t *)&short_conf_desc, sizeof(short_conf_desc));
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("get short device descriptor failed, ret=%d", ret);
+        goto failed;
+    }
+    conf_total_len = ch375_le16_to_cpu(short_conf_desc.wTotalLength);
+    udev->raw_conf_desc_len = conf_total_len;
+    INFO("config wTotalLength=%d", conf_total_len);
     
-    udev->vid = ch375_le16_to_cpu(dev_desc.idVendor);
-    udev->pid = ch375_le16_to_cpu(dev_desc.idProduct);
-    INFO("device pvid = %04X:%04X", udev->vid, udev->pid);
-    INFO("ep zero maxpacksize = %d", (int)udev->ep0_maxpack);
+    // get full config descriptor
+    udev->raw_conf_desc = (USBConfigDescriptor *)malloc(conf_total_len);
+    if (udev->raw_conf_desc == NULL) {
+        ERROR("alloc config descriptor buffer failed");
+        goto failed;
+    }
+    memset(udev->raw_conf_desc, 0, conf_total_len);
+
+    ret = get_config_descriptor(udev, (uint8_t *)udev->raw_conf_desc, conf_total_len);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("get full config descriptor failed, ret=%d", ret);
+        goto failed;
+    }
+    // analyse config descriptor
+    ret = parser_config_descriptor(udev);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("parser config descritptor failed, ret=%d", ret);
+        goto failed;
+    }
+
+    for (i = 0; i < udev->interface_cnt; i++) {
+        ep_cnt += udev->interface[i].endpoint_cnt;
+    }
+    INFO("deivce have %d interface, %d endpoint", udev->interface_cnt, ep_cnt);
+    
+    udev->connected = 1;
 
     return CH375_HST_ERRNO_SUCCESS;
+failed:
+    if (udev->raw_conf_desc != NULL) {
+        free(udev->raw_conf_desc);
+    }
+    memset(udev, 0, sizeof(USBDevice));
+    return CH375_HST_ERRNO_ERROR;
 }
 
 /**

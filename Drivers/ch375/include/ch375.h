@@ -82,6 +82,7 @@ int ch375_abort_nak(CH375Context *context);
 int ch375_test_connect(CH375Context *context, uint8_t *connect_status);
 int ch375_get_dev_speed(CH375Context *context, uint8_t *speed);
 int ch375_set_dev_speed(CH375Context *context, uint8_t speed);
+int ch375_set_usb_addr(CH375Context *context, uint8_t addr); // just tell deivce address to ch375
 
 /**
  * @brief 

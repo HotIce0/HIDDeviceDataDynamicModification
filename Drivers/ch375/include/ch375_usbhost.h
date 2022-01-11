@@ -4,12 +4,13 @@
 #include <stdint.h>
 #include "stm32f4xx_hal.h"
 #include "ch375_interface.h"
+#include "usb.h"
 
 
 #define USB_SPEED_LOW 0
 #define USB_SPEED_FULL 1
 
-#define MAX_ENDPOINT_NUM 2
+#define MAX_ENDPOINT_NUM 3
 #define MAX_INTERFACE_NUM 3
 
 enum CH375_HST_ERRNO{
@@ -29,6 +30,7 @@ typedef struct USBEndpoint
 	uint8_t tog;      //同步标志位
 	uint8_t attr;     //端点属性
 	uint8_t maxpack;  //最大包大小（最大支持64）
+	uint8_t interval;
 } USBEndpoint;
 
 typedef struct USBInterface
@@ -47,12 +49,19 @@ typedef struct USBDevice
 	uint8_t connected;
 	uint8_t ready;
 
+	// device
+	USBDeviceDescriptor raw_dev_desc;
 	uint8_t speed;  // USB_SPEED_LOW
 	uint8_t addr;
 	uint8_t ep0_maxpack;
-	uint8_t configuration;
 	uint16_t vid;
 	uint16_t pid;
+
+	// config
+	USBConfigDescriptor *raw_conf_desc;
+	uint16_t raw_conf_desc_len;
+	uint8_t configuration;
+
 	uint8_t interface_cnt;
 	USBInterface interface[MAX_INTERFACE_NUM];
 } USBDevice;
@@ -71,7 +80,6 @@ int ch375_host_interrupt_transfer(USBDevice *udev,
 	int *actual_length, uint32_t timeout);
 
 // device operation api
-
 int ch375_host_reset_dev(USBDevice *udev);
 int ch375_host_udev_init(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);

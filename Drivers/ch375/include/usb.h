@@ -248,3 +248,100 @@ typedef struct USBDeviceDescriptor {
 	uint8_t  iSerialNumber;
 	uint8_t  bNumConfigurations;
 } USBDeviceDescriptor;
+
+typedef struct USBDescriptor {
+    uint8_t bLength;
+    uint8_t bDesriptorType;
+} USBDescriptor;
+
+typedef struct USBEndpointDescriptor {
+	/** Size of this descriptor (in bytes) */
+	uint8_t  bLength;
+
+	uint8_t  bDescriptorType;
+
+	/** 
+    * Bits: 0~3 the endpoint number
+    * Bits: 4~6 reserved, reset to zero
+    * Bits: 7   Direction (Ignored for control endpoints)
+    *           Values:(0 OUT, 1 IN)
+    */
+	uint8_t  bEndpointAddress;
+
+	/** 
+    * Bits: 0~1 TransferType
+    * Bits: 2~3 Sync Type (Just iso transfer valied)
+    * Bits: 4~5 Usage Type (Just iso transfer valied)
+    */
+	uint8_t  bmAttributes;
+
+	/** Maximum packet size this endpoint is capable of sending/receiving. */
+	uint16_t wMaxPacketSize;
+
+	/** Interval for polling endpoint for data transfers. */
+	uint8_t  bInterval;
+} USBEndpointDescriptor;
+
+
+typedef struct USBInterfaceDescriptor {
+	/** Size of this descriptor (in bytes) */
+	uint8_t  bLength;
+
+    /* USB_DT_INTERFACE */
+	uint8_t  bDescriptorType;
+
+	/** Number of this interface */
+	uint8_t  bInterfaceNumber;
+
+	/** Value used to select this alternate setting for this interface */
+	uint8_t  bAlternateSetting;
+
+	/** Number of endpoints used by this interface (excluding the control
+	 * endpoint). */
+	uint8_t  bNumEndpoints;
+
+	/** USB-IF class code for this interface. */
+	uint8_t  bInterfaceClass;
+
+	/** USB-IF subclass code for this interface, qualified by the
+	 * bInterfaceClass value */
+	uint8_t  bInterfaceSubClass;
+
+	/** USB-IF protocol code for this interface, qualified by the
+	 * bInterfaceClass and bInterfaceSubClass values */
+	uint8_t  bInterfaceProtocol;
+
+	/** Index of string descriptor describing this interface */
+	uint8_t  iInterface;
+} USBInterfaceDescriptor;
+
+typedef struct USBConfigDescriptor {
+	/** Size of this descriptor (in bytes) */
+	uint8_t  bLength;
+
+	/** Descriptor type. */
+	uint8_t  bDescriptorType;
+
+	/** Total length of data returned for this configuration */
+	uint16_t wTotalLength;
+
+	/** Number of interfaces supported by this configuration */
+	uint8_t  bNumInterfaces;
+
+	/** Identifier value for this configuration */
+	uint8_t  bConfigurationValue;
+
+	/** Index of string descriptor describing this configuration */
+	uint8_t  iConfiguration;
+
+	/** Configuration characteristics */
+	uint8_t  bmAttributes;
+
+	/** Maximum power consumption of the USB device from this bus in this
+	 * configuration when the device is fully operation. Expressed in units
+	 * of 2 mA when the device is operating in high-speed mode and in units
+	 * of 8 mA when the device is operating in super-speed mode. */
+	uint8_t  MaxPower;
+} USBConfigDescriptor;
+
+

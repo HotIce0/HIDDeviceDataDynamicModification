@@ -17,6 +17,7 @@
 #define CH375_CMD_CHECK_EXIST 0x06
 #define	CH375_CMD_GET_DEV_RATE	0x0A
 #define	CH375_CMD_SET_RETRY 0x0B			/* 主机方式: 设置USB事务操作的重试次数 */
+#define	CH375_CMD_SET_USB_ADDR	0x13			/* 设置USB地址 */
 #define CH375_CMD_SET_USB_MODE 0x15
 #define CH375_CMD_TEST_CONNECT 0x16
 #define CH375_CMD_ABORT_NAK 0x17
@@ -284,6 +285,21 @@ int ch375_set_usb_mode(CH375Context *context, uint8_t mode)
     if (buf != CH375_CMD_RET_SUCCESS) {
         ERROR("set mode failed, ret code=0x%02X", buf);
         return CH375_ERROR;
+    }
+    return CH375_SUCCESS;
+}
+
+int ch375_set_usb_addr(CH375Context *context, uint8_t addr)
+{
+    int ret;
+
+    ret = ch375_write_cmd(context, CH375_CMD_SET_USB_ADDR);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
+    }
+    ret = ch375_write_data(context, addr);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
     }
     return CH375_SUCCESS;
 }
