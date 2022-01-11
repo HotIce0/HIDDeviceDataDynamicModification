@@ -145,11 +145,6 @@ int ch375_host_control_transfer(USBDevice *udev,
     return CH375_HST_ERRNO_SUCCESS;
 }
 
-// static int get_ep(USBDevice *udev, int ep)
-// {
-
-// }
-
 static void parser_endpoint_descriptor(USBInterface *interface, USBEndpointDescriptor *desc)
 {
     assert(interface);
