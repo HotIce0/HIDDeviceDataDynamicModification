@@ -31,9 +31,21 @@
 #define	CH375_USB_INT_DISCONNECT	0x16			/* 检测到USB设备断开事件 */
 #define	CH375_USB_INT_BUF_OVER	0x17			/* USB控制传输的数据太多, 缓冲区溢出 */
 #define	CH375_USB_INT_USB_READY	0x18			/* USB设备已经被初始化（已分配USB地址） */
-#define	CH375_USB_INT_DISK_READ	0x1D			/* USB存储器读数据块, 请求数据读出 */
-#define	CH375_USB_INT_DISK_WRITE	0x1E			/* USB存储器写数据块, 请求数据写入 */
-#define	CH375_USB_INT_DISK_ERR	0x1F			/* USB存储器操作失败 */
+
+/* USB的包标识PID, 主机方式可能用到 */
+#define	CH375_USB_PID_NULL 0x00			/* 保留PID, 未定义 */
+#define	CH375_USB_PID_SOF 0x05
+#define	CH375_USB_PID_SETUP	0x0D
+#define	CH375_USB_PID_IN 0x09
+#define	CH375_USB_PID_OUT 0x01
+#define	CH375_USB_PID_ACK 0x02
+#define	CH375_USB_PID_NAK 0x0A
+#define	CH375_USB_PID_STALL	0x0E
+#define	CH375_USB_PID_DATA0	0x03
+#define	CH375_USB_PID_DATA1	0x0B
+#define	CH375_USB_PID_PRE 0x0C
+
+#define CH375_PID2STATUS(x) ((x) | 0x20)
 
 /**
  * @brief 
@@ -90,7 +102,7 @@ int ch375_set_usb_addr(CH375Context *context, uint8_t addr); // just tell deivce
  * @param times CH375_SET_RETRY_TIMES_ZROE, CH375_SET_RETRY_TIMES_2MS, CH375_SET_RETRY_TIMES_INFINITY
  */
 int ch375_set_retry(CH375Context *context, uint8_t times);
-int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid);
+int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid, uint8_t *status);
 
 
 void *ch375_get_priv(CH375Context *context);

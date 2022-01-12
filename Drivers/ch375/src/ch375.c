@@ -220,11 +220,9 @@ int ch375_wait_int(CH375Context *context, uint32_t timeout)
 
     for (cnt = 0; cnt < timeout; cnt++) {
         if (ch375_query_int(context)) {
-            DEBUG("55");
             return CH375_SUCCESS;
         }
         HAL_Delay(1);
-        DEBUG("5");
     }
     return CH375_TIMEOUT;
 }
@@ -472,12 +470,12 @@ int ch375_set_retry(CH375Context *context, uint8_t times)
     return CH375_SUCCESS;
 }
 
-int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid)
+int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid, uint8_t *status)
 {
     int ret;
     uint8_t tog_val;
     uint8_t ep_pid;
-    uint8_t status;
+    uint8_t st;
 
     // 7bits: in ep tog, 6bits: out ep tog, 5~0bits: must be zero
     tog_val = tog ? 0xC0: 0x00;
@@ -504,16 +502,12 @@ int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid
     if (ret != CH375_SUCCESS) {
         return CH375_TIMEOUT;
     }
-    ret = ch375_get_status(context, &status);
+    ret = ch375_get_status(context, &st);
     if (ret != CH375_SUCCESS) {
         return CH375_ERROR;
     }
     
-    if (status != CH375_USB_INT_SUCCESS) {
-        ERROR("send token(tog=0x%02X, ep_pid=0x%02X) excute failed, status=0x%02X", tog_val, ep_pid, status);
-        return CH375_ERROR;
-    }
-
+    *status = st;
     return CH375_SUCCESS;
 }
 

@@ -22,6 +22,7 @@ enum CH375_HST_ERRNO{
     CH375_HST_ERRNO_NO_EXIST = -5,
     CH375_HST_ERRNO_TIMEOUT = -6,
 	CH375_HST_ERRNO_DEV_DISCONNECT = -7,
+	CH375_HST_ERRNO_STALL = -8,
 };
 
 typedef struct USBEndpoint
@@ -80,6 +81,7 @@ int ch375_host_interrupt_transfer(USBDevice *udev,
 	int *actual_length, uint32_t timeout);
 
 // device operation api
+int ch375_clear_stall(USBDevice *udev, uint8_t ep);
 int ch375_host_reset_dev(USBDevice *udev);
 int ch375_host_udev_init(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);
