@@ -13,7 +13,7 @@
 #define MAX_ENDPOINT_NUM 3
 #define MAX_INTERFACE_NUM 3
 
-enum CH375_HST_ERRNO{
+enum CH375_HST_ERRNO {
     CH375_HST_ERRNO_SUCCESS = 0,
     CH375_HST_ERRNO_ERROR = -1,
     CH375_HST_ERRNO_PARAM_INVALID = -2,
@@ -59,9 +59,9 @@ typedef struct USBDevice
 	uint16_t pid;
 
 	// config
-	USBConfigDescriptor *raw_conf_desc;
+	uint8_t *raw_conf_desc;
 	uint16_t raw_conf_desc_len;
-	uint8_t configuration;
+	uint8_t configuration_value;
 
 	uint8_t interface_cnt;
 	USBInterface interface[MAX_INTERFACE_NUM];
@@ -81,10 +81,14 @@ int ch375_host_interrupt_transfer(USBDevice *udev,
 	int *actual_length, uint32_t timeout);
 
 // device operation api
-int ch375_clear_stall(USBDevice *udev, uint8_t ep);
+int ch375_host_clear_stall(USBDevice *udev, uint8_t ep);
+int ch375_host_set_configration(USBDevice *udev, uint8_t iconfigration);
 int ch375_host_reset_dev(USBDevice *udev);
-int ch375_host_udev_init(CH375Context *context, USBDevice *udev);
+
+void ch375_host_udev_close(USBDevice *udev);
+int ch375_host_udev_open(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);
+
 int ch375_host_init(CH375Context *context);
 
 #endif /* CH375_USBHOST_H */

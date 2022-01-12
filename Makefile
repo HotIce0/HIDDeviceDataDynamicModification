@@ -43,6 +43,7 @@ Core/Src/stm32f4xx_it.c \
 Core/Src/stm32f4xx_hal_msp.c \
 Drivers/ch375/src/ch375_usbhost.c \
 Drivers/ch375/src/ch375.c \
+Drivers/ch375/src/usbhid.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c \
@@ -136,7 +137,7 @@ C_INCLUDES =  \
 -IUSB_DEVICE/Target \
 -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
 -IMiddlewares/ST/STM32_USB_Device_Library/Class/CustomHID/Inc \
--IDrivers/ch375/include
+-IDrivers/ch375/include \
 
 
 # compile gcc flags

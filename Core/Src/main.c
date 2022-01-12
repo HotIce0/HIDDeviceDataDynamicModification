@@ -30,6 +30,7 @@
 
 #include "usbd_customhid.h"
 #include "ch375_usbhost.h"
+#include "usbhid.h"
 
 /* USER CODE END Includes */
 
@@ -166,9 +167,11 @@ int main(void)
   /* USER CODE BEGIN 1 */
   int ret = -1;
   mouse_report_t mouse_report = {0};
-  USBDevice udev = {0};
-  CH375Context *ctx = NULL;;
   CH375Priv priv = {0};
+  CH375Context *ctx = NULL;;
+  USBDevice udev = {0};
+  USBHIDDevice hid_dev = {0};
+  
   priv.huart = &huart3;
   priv.gpio_int = usb1_int_GPIO_Port;
   priv.gpio_pin_int = usb1_int_Pin;
@@ -225,11 +228,17 @@ int main(void)
   } else {
     INFO("usb device connected");
 
-    ret = ch375_host_udev_init(ctx, &udev);
+    ret = ch375_host_udev_open(ctx, &udev);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
       ERROR("ch375 udev init failed, ret=%d", ret);
     } else {
       INFO("udev init success");
+      
+      ret = usbhid_open(&udev, 0, &hid_dev);
+      if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
+          udev.vid, udev.pid, 0, ret);
+      }
     }
   }
 

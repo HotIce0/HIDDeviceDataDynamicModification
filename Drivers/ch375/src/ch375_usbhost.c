@@ -16,7 +16,7 @@
 #define RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS 1000
 #define TRANSFER_TIMEOUT 5000
 
-#define USB_DEFAULT_ADDRESS 2
+#define USB_DEFAULT_ADDRESS 1
 #define USB_DEFAULT_EP0_MAX_PACKSIZE 8
 
 inline static void fill_control_setup(uint8_t *buf, 
@@ -42,7 +42,7 @@ int ch375_host_control_transfer(USBDevice *udev,
     int offset = 0;
     uint8_t status;
     int ret;
-
+    
     if (udev == NULL) {
         ERROR("param udev can't be NULL");
         return CH375_HST_ERRNO_PARAM_INVALID;
@@ -79,16 +79,17 @@ int ch375_host_control_transfer(USBDevice *udev,
         return CH375_HST_ERRNO_ERROR;
     }
     if (status != CH375_USB_INT_SUCCESS) {
-        ERROR("send token(SETUP) failed, status=%0x%02X", status);
+        ERROR("send token(SETUP) failed, status=0x%02X", status);
         goto status_error;
     }
+    tog = tog^1;
     DEBUG("send token(SETUP) done");
 
     // DATA0
     while (residue_len) {
         uint8_t len = residue_len > udev->ep0_maxpack ? udev->ep0_maxpack: residue_len;
         uint8_t actual_len;
-        tog = tog^1;
+        
         if (SETUP_IN(request_type)) {
             // IN
             ret = ch375_send_token(ctx, 0, tog, USB_PID_IN, &status);
@@ -97,10 +98,11 @@ int ch375_host_control_transfer(USBDevice *udev,
                 return CH375_HST_ERRNO_ERROR;
             }
             if (status != CH375_USB_INT_SUCCESS) {
-                ERROR("send token(IN) failed, status=%0x%02X", status);
+                ERROR("send token(IN) failed, status=0x%02X", status);
                 goto status_error;
             }
-
+            tog = tog^1;
+            
             ret = ch375_read_block_data(ctx, data + offset, len, &actual_len);
             if (ret != CH375_SUCCESS) {
                 ERROR("read control in data failed, (residue_len=%d, len=%d, actual_len=%d), ret=%d",
@@ -129,9 +131,10 @@ int ch375_host_control_transfer(USBDevice *udev,
                 return CH375_HST_ERRNO_ERROR;
             }
             if (status != CH375_USB_INT_SUCCESS) {
-                ERROR("send token(OUT) failed, status=%0x%02X", status);
+                ERROR("send token(OUT) failed, status=0x%02X", status);
                 goto status_error;
             }
+            tog = tog^1;
             residue_len -= actual_len;
             offset += actual_len;
         }
@@ -141,35 +144,40 @@ int ch375_host_control_transfer(USBDevice *udev,
     if (SETUP_IN(request_type)) {
         ret = ch375_write_block_data(ctx, data + offset, 0);
         if (ret != CH375_SUCCESS) {
-            ERROR("write control OUT data failed, len=0, ret=%d", ret);
+            ERROR("write control OUT 2 data failed, len=0, ret=%d", ret);
             return CH375_HST_ERRNO_ERROR;
         }
         ret = ch375_send_token(ctx, 0, tog, USB_PID_OUT, &status);
         if (ret != CH375_SUCCESS) {
-            ERROR("send token(OUT) failed, ret=%d", ret);
+            ERROR("send token(OUT 2) failed, ret=%d", ret);
             return CH375_HST_ERRNO_ERROR;
         }
         if (status != CH375_USB_INT_SUCCESS) {
-            ERROR("send token(OUT) failed, status=%0x%02X", status);
+            ERROR("send token(OUT 2) failed, status=0x%02X", status);
             goto status_error;
         }
     } else {
         ret = ch375_send_token(ctx, 0, tog, USB_PID_IN, &status);
         if (ret != CH375_SUCCESS) {
-            ERROR("send token(IN) failed, ret=%d", ret);
+            ERROR("send token(IN 2) failed, ret=%d", ret);
             return CH375_HST_ERRNO_ERROR;
         }
         if (status != CH375_USB_INT_SUCCESS) {
-            ERROR("send token(IN) failed, status=%0x%02X", status);
+            ERROR("send token(IN 2) failed, status=0x%02X", status);
             goto status_error;
         }
     }
     *actual_length = offset;
     return CH375_HST_ERRNO_SUCCESS;
+
 status_error:
     if (status == CH375_USB_INT_DISCONNECT) {
         return CH375_HST_ERRNO_DEV_DISCONNECT;
     }
+    if (status == CH375_PID2STATUS(CH375_USB_PID_STALL)) {
+        return CH375_HST_ERRNO_STALL;
+    }
+    ERROR("unhandled status=0x%02X", status);
     return CH375_HST_ERRNO_ERROR;
 }
 
@@ -199,9 +207,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
     CH375Context *ctx = 0;
     USBEndpoint *endpoint = 0;
     int residue_len = length;
-    uint8_t tog = 0;
     int offset = 0;
-    uint8_t token;
     uint8_t status;
     int ret;
 
@@ -232,7 +238,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
 
     while (residue_len > 0) {
         uint8_t len = residue_len > endpoint->maxpack ? endpoint->maxpack: residue_len;
-
+        uint8_t actual_len = 0;
         endpoint->tog = endpoint->tog ^ 1;
         if (EP_IN(ep)) {
             ret = ch375_send_token(ctx, ep, endpoint->tog, USB_PID_IN, &status);
@@ -241,7 +247,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
                 return CH375_HST_ERRNO_ERROR;
             }
             if (status == CH375_USB_INT_SUCCESS) {
-                ret = ch375_read_block_data(ctx, data + offset, len);
+                ret = ch375_read_block_data(ctx, data + offset, len, &actual_len);
                 if (ret != CH375_SUCCESS) {
                     ERROR("read IN data(len=%d) failed, ret=%d", len, ret);
                     return CH375_HST_ERRNO_ERROR;
@@ -265,24 +271,25 @@ int ch375_host_bulk_transfer(USBDevice *udev,
         // UPDATE offset, residue...
         if (status == CH375_USB_INT_SUCCESS) {
             endpoint->tog = endpoint->tog ^ 1;
-            offset += len;
-            residue_len -= len;
+            offset += actual_len;
+            residue_len -= actual_len;
             continue;
         }
 
         if (status == CH375_PID2STATUS(CH375_USB_PID_NAK)){
             if (timeout == 0) {
-                ERROR("send token(IN) to ep(0x%02X) timeout, status=%0x%02X", ep, status);
+                ERROR("send token(IN) to ep(0x%02X) timeout, status=0x%02X", ep, status);
                 return CH375_HST_ERRNO_TIMEOUT;
             }
             timeout--;
             HAL_Delay(1);
         } else {
-            ERROR("send token(IN) to ep(0x%02X) failed, status=%0x%02X", ep, status);
+            ERROR("send token(IN) to ep(0x%02X) failed, status=0x%02X", ep, status);
             goto status_error;
         }
     }
 
+    *actual_length = offset;
     return CH375_HST_ERRNO_SUCCESS;
 status_error:
     if (status == CH375_USB_INT_DISCONNECT) {
@@ -293,9 +300,6 @@ status_error:
     }
     ERROR("unhandled status=0x%02X", status);
     return CH375_HST_ERRNO_ERROR;
-disconnect:
-    ERROR("device disconnected");
-    return CH375_HST_ERRNO_DEV_DISCONNECT;
 }
 
 int ch375_host_interrupt_transfer(USBDevice *udev,
@@ -448,23 +452,43 @@ static int get_device_descriptor(USBDevice *udev, uint8_t *buf)
     return CH375_HST_ERRNO_SUCCESS;
 }
 
-int ch375_clear_stall(USBDevice *udev, uint8_t ep)
+int ch375_host_clear_stall(USBDevice *udev, uint8_t ep)
 {
-    USBEndpoint *endpoint;
+    USBEndpoint *endpoint = NULL;
     int ret;
-
-    ret = get_ep(udev, ep, endpoint);
-    if (ret < 0) {
-        ERROR("param ep=0x%02X is invalied", ep);
-        return CH375_HST_ERRNO_PARAM_INVALID;
-    }
     
+    if (ep != 0) {
+        ret = get_ep(udev, ep, &endpoint);
+        if (ret < 0) {
+            ERROR("param ep=0x%02X is invalied", ep);
+            return CH375_HST_ERRNO_PARAM_INVALID;
+        }
+    }
+
     ret = ch375_host_control_transfer(udev,
         USB_ENDPOINT_IN | USB_REQUEST_TYPE_STANDARD | USB_RECIPIENT_ENDPOINT,
         USB_REQUEST_CLEAR_FEATURE,
         0, ep, NULL, 0, NULL, TRANSFER_TIMEOUT);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("send clear feature request failed, ret=%d", ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+    if (endpoint) {
+        endpoint->tog = 0;
+    }
+
+    return CH375_HST_ERRNO_SUCCESS;
+}
+
+int ch375_host_set_configration(USBDevice *udev, uint8_t iconfigration)
+{
+    int ret = ch375_host_control_transfer(udev,
+        USB_ENDPOINT_OUT | USB_REQUEST_TYPE_STANDARD | USB_RECIPIENT_DEVICE,
+        USB_REQUEST_SET_CONFIGURATION,
+        iconfigration, 0, NULL, 0, NULL, TRANSFER_TIMEOUT);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("send set_configration(iconfigration=%d) request failed, ret=%d",
+            iconfigration, ret);
         return CH375_HST_ERRNO_ERROR;
     }
     return CH375_HST_ERRNO_SUCCESS;
@@ -565,7 +589,13 @@ disconnect:
     return CH375_HST_ERRNO_DEV_DISCONNECT;
 }
 
-int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
+void ch375_host_udev_close(USBDevice *udev)
+{
+    //TODO
+    return;
+}
+
+int ch375_host_udev_open(CH375Context *context, USBDevice *udev)
 {
     USBConfigDescriptor short_conf_desc = {0};
     uint16_t conf_total_len = 0;
@@ -617,19 +647,21 @@ int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
         ERROR("get short device descriptor failed, ret=%d", ret);
         goto failed;
     }
+    
     conf_total_len = ch375_le16_to_cpu(short_conf_desc.wTotalLength);
+    udev->configuration_value = short_conf_desc.bConfigurationValue;
     udev->raw_conf_desc_len = conf_total_len;
     INFO("config wTotalLength=%d", conf_total_len);
     
     // get full config descriptor
-    udev->raw_conf_desc = (USBConfigDescriptor *)malloc(conf_total_len);
+    udev->raw_conf_desc = (uint8_t *)malloc(conf_total_len);
     if (udev->raw_conf_desc == NULL) {
         ERROR("alloc config descriptor buffer failed");
         goto failed;
     }
     memset(udev->raw_conf_desc, 0, conf_total_len);
 
-    ret = get_config_descriptor(udev, (uint8_t *)udev->raw_conf_desc, conf_total_len);
+    ret = get_config_descriptor(udev, udev->raw_conf_desc, conf_total_len);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("get full config descriptor failed, ret=%d", ret);
         goto failed;
@@ -646,6 +678,12 @@ int ch375_host_udev_init(CH375Context *context, USBDevice *udev)
     }
     INFO("deivce have %d interface, %d endpoint", udev->interface_cnt, ep_cnt);
     
+    ret = ch375_host_set_configration(udev, udev->configuration_value);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("set configration(%d) failed, ret=%d", udev->configuration_value, ret);
+        goto failed;
+    }
+    INFO("set configration %d success", udev->configuration_value);
     udev->connected = 1;
 
     return CH375_HST_ERRNO_SUCCESS;

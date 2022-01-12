@@ -32,6 +32,20 @@
 #define	CH375_USB_INT_BUF_OVER	0x17			/* USB控制传输的数据太多, 缓冲区溢出 */
 #define	CH375_USB_INT_USB_READY	0x18			/* USB设备已经被初始化（已分配USB地址） */
 
+/* 以下状态代码2XH-3XH用于USB主机方式的通讯失败代码, 仅CH375支持 */
+/*   位7-位6为00 */
+/*   位5为1 */
+/*   位4指示当前接收的数据包是否同步 */
+/*   位3-位0指示导致通讯失败时USB设备的应答: 0010=ACK, 1010=NAK, 1110=STALL, 0011=DATA0, 1011=DATA1, XX00=超时 */
+/* USB_INT_RET_ACK	    0x001X 0010B */			/* 错误:对于IN事务返回ACK */
+/* USB_INT_RET_NAK	    0x001X 1010B */			/* 错误:返回NAK */
+/* USB_INT_RET_STALL	0x001X 1110B */		    /* 错误:返回STALL */
+/* USB_INT_RET_DATA0	0x001X 0011B */		    /* 错误:对于OUT/SETUP事务返回DATA0 */
+/* USB_INT_RET_DATA1	0x001X 1011B */		    /* 错误:对于OUT/SETUP事务返回DATA1 */
+/* USB_INT_RET_TOUT	    0x001X XX00B */			/* 错误:返回超时 */
+/* USB_INT_RET_TOGX	    0x0010 X011B */			/* 错误:对于IN事务返回数据不同步 */
+/* USB_INT_RET_PID	    0x001X XXXXB */			/* 错误:未定义 */
+
 /* USB的包标识PID, 主机方式可能用到 */
 #define	CH375_USB_PID_NULL 0x00			/* 保留PID, 未定义 */
 #define	CH375_USB_PID_SOF 0x05
@@ -59,20 +73,6 @@
 #define CH375_SET_RETRY_TIMES_ZROE      0x00
 #define CH375_SET_RETRY_TIMES_2MS       0x01
 #define CH375_SET_RETRY_TIMES_INFINITY  0x02
-
-
-static inline uint16_t ch375_cpu_to_le16(const uint16_t x)
-{
-	union {
-		uint8_t  b8[2];
-		uint16_t b16;
-	} _tmp;
-	_tmp.b8[1] = (uint8_t) (x >> 8);
-	_tmp.b8[0] = (uint8_t) (x & 0xff);
-	return _tmp.b16;
-}
-
-#define ch375_le16_to_cpu ch375_cpu_to_le16
 
 // Any Mode
 int ch375_query_int(CH375Context *context);
