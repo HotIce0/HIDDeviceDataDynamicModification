@@ -2,11 +2,13 @@
 With this project, You can cheat in FPS games.
 
 ## TODO
-- USB host basic api (done)
-- HID Lib (doing)
-- HID Device(composite device[mouse, keyboard])
-- Finish HID data transmission
-- HID data dynamic modification
+- [x] USB host basic api
+- [ ] HID Lib
+- [ ] HID Device(composite device[mouse, keyboard])
+- [ ] Finish HID data transmission
+- [ ] HID data dynamic modification
+
+> DOING: HID Lib
 
 ## Environment
 1. Hardware
