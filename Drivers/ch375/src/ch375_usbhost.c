@@ -6,6 +6,7 @@
 // #define ENABLE_DEBUG
 #include "log.h"
 
+#include "bswap.h"
 #include "ch375.h"
 #include "ch375_usbhost.h"
 
@@ -26,9 +27,9 @@ inline static void fill_control_setup(uint8_t *buf,
     USBControlSetup *cs = (USBControlSetup *)buf;
     cs->bmRequestType = request_type;
     cs->bRequest = bRequest;
-    cs->wValue = ch375_cpu_to_le16(wValue);
-    cs->wIndex = ch375_cpu_to_le16(wIndex);
-    cs->wLength = ch375_cpu_to_le16(wLength);
+    cs->wValue = cpu_to_le16(wValue);
+    cs->wIndex = cpu_to_le16(wIndex);
+    cs->wLength = cpu_to_le16(wLength);
 }
 
 int ch375_host_control_transfer(USBDevice *udev,
@@ -318,7 +319,7 @@ static void parser_endpoint_descriptor(USBInterface *interface, USBEndpointDescr
     ep->ep_num = desc->bEndpointAddress;
     ep->tog = 0;
     ep->attr = desc->bmAttributes;
-    ep->maxpack = ch375_le16_to_cpu(desc->wMaxPacketSize);
+    ep->maxpack = le16_to_cpu(desc->wMaxPacketSize);
     ep->interval = desc->bInterval;
 
     interface->endpoint_cnt++;
@@ -626,8 +627,8 @@ int ch375_host_udev_open(CH375Context *context, USBDevice *udev)
     }
 
     udev->ep0_maxpack = udev->raw_dev_desc.bMaxPacketSize0;
-    udev->vid = ch375_le16_to_cpu(udev->raw_dev_desc.idVendor);
-    udev->pid = ch375_le16_to_cpu(udev->raw_dev_desc.idProduct);
+    udev->vid = le16_to_cpu(udev->raw_dev_desc.idVendor);
+    udev->pid = le16_to_cpu(udev->raw_dev_desc.idProduct);
     
     INFO("device pvid = %04X:%04X", udev->vid, udev->pid);
     INFO("ep 0 max packsize = %d", (int)udev->ep0_maxpack);
@@ -648,7 +649,7 @@ int ch375_host_udev_open(CH375Context *context, USBDevice *udev)
         goto failed;
     }
     
-    conf_total_len = ch375_le16_to_cpu(short_conf_desc.wTotalLength);
+    conf_total_len = le16_to_cpu(short_conf_desc.wTotalLength);
     udev->configuration_value = short_conf_desc.bConfigurationValue;
     udev->raw_conf_desc_len = conf_total_len;
     INFO("config wTotalLength=%d", conf_total_len);

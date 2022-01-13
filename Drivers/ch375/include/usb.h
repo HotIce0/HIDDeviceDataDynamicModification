@@ -217,21 +217,6 @@ enum USBRequestRecipient {
 	USB_RECIPIENT_OTHER = 0x03
 };
 
-static inline uint16_t ch375_cpu_to_le16(const uint16_t x)
-{
-	union {
-		uint8_t  b8[2];
-		uint16_t b16;
-	} _tmp;
-	_tmp.b8[1] = (uint8_t) (x >> 8);
-	_tmp.b8[0] = (uint8_t) (x & 0xff);
-	return _tmp.b16;
-}
-
-#define ch375_le16_to_cpu ch375_cpu_to_le16
-
-
-
 #define DEVICE_DESC_LEN 0x12
 
 #define CONTROL_SETUP_SIZE sizeof(USBControlSetup)

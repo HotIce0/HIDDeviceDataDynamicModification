@@ -1,20 +1,84 @@
-#define ENABLE_LOG
-// #define ENABLE_DEBUG
-#include "log.h"
-
-#include "ch375_usbhost.h"
-#include "usbhid.h"
-
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
 
-#define HID_TYPE_MOUSE    0
-#define HID_TYPE_KEYBOARD 1
+#define ENABLE_LOG
+// #define ENABLE_DEBUG
+#include "log.h"
+
+#include "bswap.h"
+#include "ch375_usbhost.h"
+#include "hid/usbhid.h"
 
 // ms
 #define TRANSFER_TIMEOUT 5000
 
+
+// HID Class-Specific Requests values. See section 7.2 of the HID specifications
+#define HID_GET_REPORT                0x01
+#define HID_GET_IDLE                  0x02
+#define HID_GET_PROTOCOL              0x03
+#define HID_SET_REPORT                0x09
+#define HID_SET_IDLE                  0x0A
+#define HID_SET_PROTOCOL              0x0B
+#define HID_REPORT_TYPE_INPUT         0x01
+#define HID_REPORT_TYPE_OUTPUT        0x02
+#define HID_REPORT_TYPE_FEATURE       0x03
+ 
+
+// simple implementation
+static int parser_hid_report(uint8_t *report, uint16_t len, uint8_t *hid_type)
+{
+    HIDItem item = {0};
+    uint8_t *end = report + len;
+    uint8_t *cur = report;
+    
+    // first item must be generic desktop
+    cur = hid_fetch_item(cur, end, &item);
+    if (cur == NULL) {
+        ERROR("get item faild");
+        return -1;
+    }
+    if (item.size != 1) {
+        ERROR("first item size invalied");
+        return -1;
+    }
+    if (!(item.format == HID_ITEM_FORMAT_SHORT &&
+        item.type == HID_ITEM_TYPE_GLOBAL &&
+        item.tag == HID_GLOBAL_ITEM_TAG_USAGE_PAGE &&
+        (item.data.u8 << 16) == HID_UP_GENDESK)) {
+        ERROR("first item is not generic desktop controls");
+        return -1;
+    }
+    // Usage(Mouse/Keyboard)
+    cur = hid_fetch_item(cur, end, &item);
+    if (cur == NULL) {
+        ERROR("get item faild");
+        return -1;
+    }
+    if (item.size != 1) {
+        ERROR("first item size invalied");
+        return -1;
+    }
+    if (!(item.format == HID_ITEM_FORMAT_SHORT &&
+        item.type == HID_ITEM_TYPE_LOCAL &&
+        item.tag == HID_GLOBAL_ITEM_TAG_USAGE_PAGE)) {
+        ERROR("Usage not found");
+        return -1;
+    }
+    if (item.data.u8 == (HID_GD_MOUSE & 0xF)) {
+        *hid_type = USBHID_TYPE_MOUSE;
+        return 0;
+    } else if (item.data.u8 == (HID_GD_KEYBOARD & 0xF)) {
+        *hid_type = USBHID_TYPE_KEYBOARD;
+        return 0;
+    } else {
+        ERROR("not support Usage(0x%02X)", item.data.u8);
+        return -1;
+    }
+
+    return 0;
+}
 
 static int hid_get_class_descriptor(USBDevice *udev, uint8_t interface_num,
     uint8_t type, uint8_t *buf, uint16_t len)
@@ -97,17 +161,18 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
     HIDDescriptor *desc = NULL;
     uint8_t *raw_hid_report = NULL;
     uint16_t raw_hid_report_len = 0;
+    uint8_t hid_type;
     int ret;
     
     ret = get_hid_descriptor(udev, interface_num, &desc);
     if (ret < 0) {
-        ERROR("can't find hid descriptor in udev(%04X:%04X) interface_num(%d)",
+        ERROR("can't find HID descriptor in udev(%04X:%04X) interface_num(%d)",
             udev->vid, udev->pid, interface_num);
         return USBHID_ERRNO_NOT_HID_DEV;
     }
 
     INFO("HID descriptor was founded, vesion=0x%04X, countryCode=0x%02X",
-        ch375_le16_to_cpu(desc->bcdHID), desc->bCountryCode);
+        le16_to_cpu(desc->bcdHID), desc->bCountryCode);
 
     if (desc->bNumDescriptors > 1) {
         // TODO not support
@@ -120,10 +185,10 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
     set_idle(udev, interface_num, 0, 0);
     INFO("set idle done");
     
-    raw_hid_report_len = ch375_le16_to_cpu(desc->wClassDescriptorLength);
+    raw_hid_report_len = le16_to_cpu(desc->wClassDescriptorLength);
     raw_hid_report = (uint8_t *)malloc(raw_hid_report_len);
     if (raw_hid_report == NULL) {
-        ERROR("allocate raw hid report buffer(len=%d) failed", raw_hid_report_len);
+        ERROR("allocate raw HID report buffer(len=%d) failed", raw_hid_report_len);
         return USBHID_ERRNO_ERROR;
     }
     memset(raw_hid_report, 0, raw_hid_report_len);
@@ -135,13 +200,35 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
             interface_num, raw_hid_report_len, ret);
         return USBHID_ERRNO_IO_ERROR;
     }
-    INFO("get HID REPORT(interface_num=%d, len=%d) done", interface_num, raw_hid_report_len);
+    INFO("get HID REPORT (interface_num=%d, len=%d) done", interface_num, raw_hid_report_len);
 
-    hiddev->hid_desc = desc;
+    // parser HID report
+    ret = parser_hid_report(raw_hid_report, raw_hid_report_len, &hid_type);
+    if (ret < 0) {
+        ERROR("parser HID report failed, not support");
+        free(raw_hid_report);
+        raw_hid_report = NULL;
+        return USBHID_ERRNO_NOT_SUPPORT;
+    }
+
     hiddev->udev = udev;
     hiddev->interface_num = interface_num;
     hiddev->raw_hid_report = raw_hid_report;
     hiddev->raw_hid_report_len = raw_hid_report_len;
+    hiddev->hid_desc = desc;
+    hiddev->hid_type = hid_type;
 
     return USBHID_ERRNO_SUCCESS;
+}
+
+void usbhid_close(USBHIDDevice *hiddev)
+{
+    if (hiddev == NULL) {
+        return;
+    }
+    if (hiddev->raw_hid_report) {
+        free(hiddev->raw_hid_report);
+        hiddev->raw_hid_report = NULL;
+    }
+    memset(hiddev, 0, sizeof(USBHIDDevice));
 }

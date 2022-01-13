@@ -30,7 +30,8 @@
 
 #include "usbd_customhid.h"
 #include "ch375_usbhost.h"
-#include "usbhid.h"
+#include "hid/usbhid.h"
+#include "hid/hid_mouse.h"
 
 /* USER CODE END Includes */
 
@@ -223,29 +224,47 @@ int main(void)
   ret = ch375_host_wait_device_connect(ctx, 5000);
   if (ret == CH375_HST_ERRNO_ERROR) {
     ERROR("ch375 unkown error, need reset");
+    goto loop;
   } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
     ERROR("ch375 wait device connecetd timeout");
-  } else {
-    INFO("usb device connected");
-
-    ret = ch375_host_udev_open(ctx, &udev);
-    if (ret != CH375_HST_ERRNO_SUCCESS) {
-      ERROR("ch375 udev init failed, ret=%d", ret);
-    } else {
-      INFO("udev init success");
-      
-      ret = usbhid_open(&udev, 0, &hid_dev);
-      if (ret != USBHID_ERRNO_SUCCESS) {
-        ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
-          udev.vid, udev.pid, 0, ret);
-      }
-    }
+    goto loop;
   }
+  INFO("usb device connected");
 
+  ret = ch375_host_udev_open(ctx, &udev);
+  if (ret != CH375_HST_ERRNO_SUCCESS) {
+    ERROR("ch375 udev init failed, ret=%d", ret);
+    goto loop;
+  }
+  INFO("udev init success");
+
+  ret = usbhid_open(&udev, 0, &hid_dev);
+  if (ret != USBHID_ERRNO_SUCCESS) {
+    ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
+      udev.vid, udev.pid, 0, ret);
+    goto loop;
+  }
+  INFO("usbhid init success, hid_type=%d", hid_dev.hid_type);
+
+  if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
+    HIDMouse mouse = {0};
+    ret = hid_mouse_open(&hid_dev, &mouse);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("HID mouse init failed, ret=%d", ret);
+      goto loop;
+    }
+    INFO("hid mouse init success");
+
+  } else if (hid_dev.hid_type == USBHID_TYPE_KEYBOARD) {
+    
+  } else {
+    goto loop;
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+loop:
   while (1)
   {
     uint8_t is_user_btn_down = HAL_GPIO_ReadPin(user_btn_GPIO_Port, user_btn_Pin);
