@@ -240,7 +240,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
     while (residue_len > 0) {
         uint8_t len = residue_len > endpoint->maxpack ? endpoint->maxpack: residue_len;
         uint8_t actual_len = 0;
-        endpoint->tog = endpoint->tog ^ 1;
+        
         if (EP_IN(ep)) {
             ret = ch375_send_token(ctx, ep, endpoint->tog, USB_PID_IN, &status);
             if (ret != CH375_SUCCESS) {
@@ -270,7 +270,10 @@ int ch375_host_bulk_transfer(USBDevice *udev,
             }
         }
         // UPDATE offset, residue...
+        DEBUG("offset=%d, residue_len=%d, len=%d, status=0x%02X",
+            offset, residue_len, len, status);
         if (status == CH375_USB_INT_SUCCESS) {
+            DEBUG("actual_len=%d", actual_len);
             endpoint->tog = endpoint->tog ^ 1;
             offset += actual_len;
             residue_len -= actual_len;

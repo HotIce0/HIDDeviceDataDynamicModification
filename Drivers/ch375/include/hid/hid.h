@@ -288,4 +288,20 @@ typedef struct HIDItem {
 
 uint8_t *hid_fetch_item(uint8_t *start, uint8_t *end, HIDItem *item);
 
+
+/**
+ * 暂时通过数据描述符的方式，对需要处理的数据进行定义
+ * TODO: 实现HID描述符解析得到该数据定义
+ */
+typedef struct HIDDataDescriptor {
+	int32_t physical_minimum;
+	int32_t physical_maximum;
+	int32_t logical_minimum;
+	int32_t logical_maximum;
+	uint32_t size; // bit
+	uint32_t count;
+
+	uint32_t report_buf_off; // byte
+} HIDDataDescriptor;
+
 #endif /* HID_H */

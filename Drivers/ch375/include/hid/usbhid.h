@@ -12,6 +12,7 @@ enum USBHID_ERRNO{
     USBHID_ERRNO_ERROR = -1,
     USBHID_ERRNO_PARAM_INVALID = -2,
     USBHID_ERRNO_IO_ERROR = -3,
+    USBHID_ERRNO_NO_DEV = -4,
     USBHID_ERRNO_TIMEOUT = -6,
 	USBHID_ERRNO_DEV_DISCONNECT = -7,
     USBHID_ERRNO_NOT_HID_DEV = -8,
@@ -36,15 +37,17 @@ typedef struct HIDDescriptor {
 typedef struct USBHIDDevice {
     USBDevice *udev;
     uint8_t interface_num;
+    uint8_t ep_in;
 
-    uint8_t *raw_hid_report;
-    uint16_t raw_hid_report_len;
+    uint8_t *raw_hid_report_desc;
+    uint16_t raw_hid_report_desc_len;
 
     HIDDescriptor *hid_desc;
 
     uint8_t hid_type;
 } USBHIDDevice;
 
+int usbhid_read(USBHIDDevice *hiddev, uint8_t *buffer, int length, int *actual_len);
 void usbhid_close(USBHIDDevice *hiddev);
 int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev);
 

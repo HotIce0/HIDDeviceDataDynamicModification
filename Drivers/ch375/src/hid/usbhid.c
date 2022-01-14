@@ -26,6 +26,33 @@
 #define HID_REPORT_TYPE_FEATURE       0x03
  
 
+int usbhid_read(USBHIDDevice *hiddev, uint8_t *buffer, int length, int *actual_len)
+{
+    USBDevice *udev;
+    int ret;
+
+    if (hiddev == NULL) {
+        ERROR("param hiddev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    if (buffer == NULL) {
+        ERROR("param buffer can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    udev = hiddev->udev;
+
+    ret = ch375_host_interrupt_transfer(udev, hiddev->ep_in,
+        buffer, length, actual_len, TRANSFER_TIMEOUT);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("transfer(ep=0x%02X) failed, ret=%d", hiddev->ep_in, ret);
+        if (ret == CH375_HST_ERRNO_DEV_DISCONNECT) {
+            return USBHID_ERRNO_NO_DEV;
+        }
+        return USBHID_ERRNO_IO_ERROR;
+    }
+    return USBHID_ERRNO_SUCCESS;
+}
+
 // simple implementation
 static int parser_hid_report(uint8_t *report, uint16_t len, uint8_t *hid_type)
 {
@@ -108,6 +135,21 @@ static int hid_get_class_descriptor(USBDevice *udev, uint8_t interface_num,
     return USBHID_ERRNO_SUCCESS;
 }
 
+static int get_ep_in(USBDevice *udev, uint8_t interface_num, uint8_t *ep)
+{
+    assert(udev);
+    assert(ep);
+    assert(interface_num < udev->interface_cnt);
+    USBInterface *interface = &udev->interface[interface_num];
+
+    if (interface->endpoint_cnt < 1) {
+        ERROR("interface_num(%d) have no endpoint", interface_num);
+        return -1;
+    }
+    *ep = interface->endpoint[0].ep_num;
+    return 0;
+}
+
 static void set_idle(USBDevice *udev, uint8_t interface_num,
     uint8_t duration, uint8_t report_id)
 {
@@ -159,10 +201,12 @@ static int get_hid_descriptor(USBDevice *udev, uint8_t interface_num, HIDDescrip
 int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
 {
     HIDDescriptor *desc = NULL;
-    uint8_t *raw_hid_report = NULL;
-    uint16_t raw_hid_report_len = 0;
+    uint8_t *raw_hid_report_desc = NULL;
+    uint16_t raw_hid_report_desc_len = 0;
     uint8_t hid_type;
+    uint8_t ep_in;
     int ret;
+    int result;
     
     ret = get_hid_descriptor(udev, interface_num, &desc);
     if (ret < 0) {
@@ -185,40 +229,56 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
     set_idle(udev, interface_num, 0, 0);
     INFO("set idle done");
     
-    raw_hid_report_len = le16_to_cpu(desc->wClassDescriptorLength);
-    raw_hid_report = (uint8_t *)malloc(raw_hid_report_len);
-    if (raw_hid_report == NULL) {
-        ERROR("allocate raw HID report buffer(len=%d) failed", raw_hid_report_len);
+    raw_hid_report_desc_len = le16_to_cpu(desc->wClassDescriptorLength);
+    raw_hid_report_desc = (uint8_t *)malloc(raw_hid_report_desc_len);
+    if (raw_hid_report_desc == NULL) {
+        ERROR("allocate raw HID report buffer(len=%d) failed", raw_hid_report_desc_len);
         return USBHID_ERRNO_ERROR;
     }
-    memset(raw_hid_report, 0, raw_hid_report_len);
+    memset(raw_hid_report_desc, 0, raw_hid_report_desc_len);
 
+    // get data in endpoint
+    ret = get_ep_in(udev, interface_num, &ep_in);
+    if (ret < 0) {
+        ERROR("get endpoint in(interface_num=%d) failed", interface_num);
+        result = USBHID_ERRNO_NOT_SUPPORT;
+        goto failed;
+    }
+
+    // get HID report
     ret = hid_get_class_descriptor(udev, interface_num, USB_DT_REPORT,
-        raw_hid_report, raw_hid_report_len);
+        raw_hid_report_desc, raw_hid_report_desc_len);
     if (ret != USBHID_ERRNO_SUCCESS) {
         ERROR("get HID REPORT(interface_num=%d, len=%d) failed, ret=%d",
-            interface_num, raw_hid_report_len, ret);
-        return USBHID_ERRNO_IO_ERROR;
+            interface_num, raw_hid_report_desc_len, ret);
+        result = USBHID_ERRNO_IO_ERROR;
+        goto failed;
     }
-    INFO("get HID REPORT (interface_num=%d, len=%d) done", interface_num, raw_hid_report_len);
+    INFO("get HID REPORT (interface_num=%d, len=%d) done", interface_num, raw_hid_report_desc_len);
 
     // parser HID report
-    ret = parser_hid_report(raw_hid_report, raw_hid_report_len, &hid_type);
+    ret = parser_hid_report(raw_hid_report_desc, raw_hid_report_desc_len, &hid_type);
     if (ret < 0) {
         ERROR("parser HID report failed, not support");
-        free(raw_hid_report);
-        raw_hid_report = NULL;
-        return USBHID_ERRNO_NOT_SUPPORT;
+        result = USBHID_ERRNO_NOT_SUPPORT;
+        goto failed;
     }
 
     hiddev->udev = udev;
     hiddev->interface_num = interface_num;
-    hiddev->raw_hid_report = raw_hid_report;
-    hiddev->raw_hid_report_len = raw_hid_report_len;
+    hiddev->ep_in = ep_in;
+    hiddev->raw_hid_report_desc = raw_hid_report_desc;
+    hiddev->raw_hid_report_desc_len = raw_hid_report_desc_len;
     hiddev->hid_desc = desc;
     hiddev->hid_type = hid_type;
 
     return USBHID_ERRNO_SUCCESS;
+failed:
+    if (raw_hid_report_desc) {
+        free(raw_hid_report_desc);
+        raw_hid_report_desc = NULL;
+    }
+    return result;
 }
 
 void usbhid_close(USBHIDDevice *hiddev)
@@ -226,9 +286,9 @@ void usbhid_close(USBHIDDevice *hiddev)
     if (hiddev == NULL) {
         return;
     }
-    if (hiddev->raw_hid_report) {
-        free(hiddev->raw_hid_report);
-        hiddev->raw_hid_report = NULL;
+    if (hiddev->raw_hid_report_desc) {
+        free(hiddev->raw_hid_report_desc);
+        hiddev->raw_hid_report_desc = NULL;
     }
     memset(hiddev, 0, sizeof(USBHIDDevice));
 }

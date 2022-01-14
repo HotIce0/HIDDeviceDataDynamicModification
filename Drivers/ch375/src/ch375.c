@@ -480,7 +480,7 @@ int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid
     // 7bits: in ep tog, 6bits: out ep tog, 5~0bits: must be zero
     tog_val = tog ? 0xC0: 0x00;
     // 7~4bits: ep, 3~0bits: pid
-    ep_pid = ((0xF & ep) << 4) | (0xF & pid);
+    ep_pid = (ep << 4) | (0xF & pid);
     DEBUG("togval=0x%02X", tog_val);
     DEBUG("ep_pid=0x%02X", ep_pid);
 
