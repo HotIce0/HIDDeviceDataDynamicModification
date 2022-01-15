@@ -159,7 +159,7 @@ static int ch375_func_query_int(CH375Context *context)
 
 #define REPORT_BUFSIZE 20
 
-static void loop_handle_mosue(HIDMouse *mouse)
+static void loop_handle_mosue(HIDMouse *dev)
 {
   int32_t x;
   int32_t y;
@@ -167,7 +167,7 @@ static void loop_handle_mosue(HIDMouse *mouse)
   int i;
 
   while (1) {
-    ret = hid_mouse_fetch_report(mouse);
+    ret = hid_mouse_fetch_report(dev);
     if (ret != USBHID_ERRNO_SUCCESS) {
       ERROR("fetch report failed, ret=%d", ret);
       if (ret != USBHID_ERRNO_NO_DEV) {
@@ -175,19 +175,19 @@ static void loop_handle_mosue(HIDMouse *mouse)
       }
     }
     // Button click check
-    // hid_mouse_set_button(mouse, HID_MOUSE_BUTTON_LEFT, 1, 0);
-    for (i = 0; i < mouse->button.count; i++) {
+    // hid_mouse_set_button(dev, HID_MOUSE_BUTTON_LEFT, 1, 0);
+    for (i = 0; i < dev->button.count; i++) {
       uint32_t is_pressed;
-      (void)hid_mouse_get_button(mouse, i, &is_pressed, 0);
+      (void)hid_mouse_get_button(dev, i, &is_pressed, 0);
       if (is_pressed) {
         INFO("button %d is pressed", i);
       }
     }
     // move print
-    // hid_mouse_set_orientation(mouse, HID_MOUSE_AXIS_X, 0x7FFF, 0);
-    // hid_mouse_set_orientation(mouse, HID_MOUSE_AXIS_Y, 0x8001, 0);
-    (void)hid_mouse_get_orientation(mouse, HID_MOUSE_AXIS_X, &x, 0);
-    (void)hid_mouse_get_orientation(mouse, HID_MOUSE_AXIS_Y, &y, 0);
+    // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_X, 0x7FFF, 0);
+    // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_Y, 0x8001, 0);
+    (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &x, 0);
+    (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_Y, &y, 0);
     if (!(x == 0 && y == 0)) {
       INFO("mouse move(%d,%d)", x, y);
     }

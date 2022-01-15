@@ -11,82 +11,66 @@
 #include "hid/hid.h"
 
 
-static inline uint8_t *get_report_buffer(HIDMouse *mouse, uint8_t is_last)
-{
-    assert(mouse);
-
-    if (is_last) {
-        return mouse->report_buffer + mouse->report_buffer_last_offset;
-    } else {
-        uint8_t offset;
-        offset = mouse->report_buffer_last_offset ? 0: mouse->report_buffer_last_offset;
-        return mouse->report_buffer + offset;
-    }
-}
-
-int hid_mouse_get_report_buffer(HIDMouse *mouse, uint8_t **buffer, uint8_t is_last)
-{
-    if (mouse == NULL) {
-        ERROR("param mouse can't be NULL");
-        return USBHID_ERRNO_PARAM_INVALID;
-    }
-    if (buffer == NULL) {
-        ERROR("param buffer can't be NULL");
-        return USBHID_ERRNO_PARAM_INVALID;
-    }
-    *buffer = get_report_buffer(mouse, is_last);
-    return USBHID_ERRNO_SUCCESS;
-}
-
-int hid_mouse_get_button(HIDMouse *mouse, uint32_t button_num, uint32_t *value, uint8_t is_last)
+int hid_mouse_get_button(HIDMouse *dev, uint32_t button_num, uint32_t *value, uint8_t is_last)
 {
     HIDDataDescriptor *desc;
     uint8_t *report_buf;
     uint8_t *field_buf;
     uint8_t byte_off = button_num / 8;
     uint8_t bit_off = button_num % 8;
+    int ret;
 
-    if (mouse == NULL) {
-        ERROR("param mouse can't be NULL");
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
     if (value == NULL) {
         ERROR("param value can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    if (button_num >= mouse->button.count) {
+    if (button_num >= dev->button.count) {
         ERROR("param buttom_num(%u) is invalied", button_num);
         return USBHID_ERRNO_PARAM_INVALID;
     }
 
-    desc = &mouse->button;
-    report_buf = get_report_buffer(mouse, is_last);
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
 
+    desc = &dev->button;
     field_buf = report_buf + desc->report_buf_off;
     // INFO("button_num=%d, byte_off=%d, bit_off=%d", button_num, byte_off, bit_off);
     *value = field_buf[byte_off] & (0x01 << bit_off) ? 1: 0;
     return USBHID_ERRNO_SUCCESS;
 }
 
-int hid_mouse_set_button(HIDMouse *mouse, uint32_t button_num, uint32_t value, uint8_t is_last)
+int hid_mouse_set_button(HIDMouse *dev, uint32_t button_num, uint32_t value, uint8_t is_last)
 {
     HIDDataDescriptor *desc;
     uint8_t *report_buf;
     uint8_t *field_buf;
     uint8_t byte_off = button_num / 8;
     uint8_t bit_off = button_num % 8;
+    int ret;
 
-    if (mouse == NULL) {
-        ERROR("param mouse can't be NULL");
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    if (button_num >= mouse->button.count) {
+    if (button_num >= dev->button.count) {
         ERROR("param buttom_num(%u) is invalied", button_num);
         return USBHID_ERRNO_PARAM_INVALID;
     }
 
-    desc = &mouse->button;
-    report_buf = get_report_buffer(mouse, is_last);
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+
+    desc = &dev->button;
     field_buf = report_buf + desc->report_buf_off;
 
     if (value) {
@@ -97,28 +81,34 @@ int hid_mouse_set_button(HIDMouse *mouse, uint32_t button_num, uint32_t value, u
     return USBHID_ERRNO_SUCCESS;
 }
 
-int hid_mouse_get_orientation(HIDMouse *mouse, uint32_t axis_num, int32_t *value, uint8_t is_last)
+int hid_mouse_get_orientation(HIDMouse *dev, uint32_t axis_num, int32_t *value, uint8_t is_last)
 {
     HIDDataDescriptor *desc;
     uint8_t *report_buf;
     uint8_t *field_buf;
     uint8_t value_byte_size;
+    int ret;
 
-    if (mouse == NULL) {
-        ERROR("param mouse can't be NULL");
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
     if (value == NULL) {
         ERROR("param value can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    if (axis_num >= mouse->orientation.count) {
+    if (axis_num >= dev->orientation.count) {
         ERROR("param axis_num(%u) is invalid", axis_num);
         return USBHID_ERRNO_PARAM_INVALID;
     }
 
-    desc = &mouse->orientation;
-    report_buf = get_report_buffer(mouse, is_last);
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+
+    desc = &dev->orientation;
     field_buf = report_buf + desc->report_buf_off;
     value_byte_size = (desc->size / 8);
 
@@ -141,24 +131,30 @@ int hid_mouse_get_orientation(HIDMouse *mouse, uint32_t axis_num, int32_t *value
     return USBHID_ERRNO_SUCCESS;
 }
 
-int hid_mouse_set_orientation(HIDMouse *mouse, uint32_t axis_num, int32_t value, uint8_t is_last)
+int hid_mouse_set_orientation(HIDMouse *dev, uint32_t axis_num, int32_t value, uint8_t is_last)
 {
     HIDDataDescriptor *desc;
     uint8_t *report_buf;
     uint8_t *field_buf;
     uint8_t value_byte_size;
+    int ret;
 
-    if (mouse == NULL) {
-        ERROR("param mouse can't be NULL");
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    if (axis_num >= mouse->orientation.count) {
+    if (axis_num >= dev->orientation.count) {
         ERROR("param axis_num(%u) is invalid", axis_num);
         return USBHID_ERRNO_PARAM_INVALID;
     }
 
-    desc = &mouse->orientation;
-    report_buf = get_report_buffer(mouse, is_last);
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+
+    desc = &dev->orientation;
     field_buf = report_buf + desc->report_buf_off;
     value_byte_size = (desc->size / 8);
 
@@ -181,59 +177,32 @@ int hid_mouse_set_orientation(HIDMouse *mouse, uint32_t axis_num, int32_t value,
     return USBHID_ERRNO_SUCCESS;
 }
 
-int hid_mouse_fetch_report(HIDMouse *mouse)
+int hid_mouse_fetch_report(HIDMouse *dev)
 {
-    USBHIDDevice *hiddev = mouse->hid_dev;
-    uint8_t *last_report_buffer;
-    int actual_len;
-    int ret;
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
 
-    last_report_buffer = get_report_buffer(mouse, 0);
-    ret = usbhid_read(hiddev, last_report_buffer,
-        mouse->report_length, &actual_len);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-        ERROR("fetch report failed, ret=%d", ret);
-        return ret;
-    }
-    // DEBUG: dump report
-    // DEBUG("BTN:%02X %02X X:%02X %02X Y:%02X %02X WHEEL:%02X UNKOWN:%02X",
-    //     last_report_buffer[0],
-    //     last_report_buffer[1],
-    //     last_report_buffer[2],
-    //     last_report_buffer[3],
-    //     last_report_buffer[4],
-    //     last_report_buffer[5],
-    //     last_report_buffer[6],
-    //     last_report_buffer[7]);
-    // switch buffer
-    if (mouse->report_buffer_last_offset) {
-        mouse->report_buffer_last_offset = 0;
-    } else {
-        mouse->report_buffer_last_offset = mouse->report_length;
-    }
-    DEBUG("mouse fetch report success");
-    return USBHID_ERRNO_SUCCESS;
+    return usbhid_fetch_report(dev->hid_dev);
 }
 
-void hid_mouse_close(HIDMouse *mouse)
+void hid_mouse_close(HIDMouse *dev)
 {
-    if (mouse == NULL) {
+    if (dev == NULL) {
         return;
     }
-    if (mouse->report_buffer) {
-        free(mouse->report_buffer);
-        mouse->report_buffer = NULL;
-    }
-    memset(mouse, 0, sizeof(HIDMouse));
+    usbhid_free_report_buffer(dev->hid_dev);
+    memset(dev, 0, sizeof(HIDMouse));
 }
 
-static int parser_hid_report(HIDMouse *mouse, uint8_t *report, uint16_t len)
+static int parser_hid_report(HIDMouse *dev, uint8_t *report, uint16_t len)
 {
-    HIDDataDescriptor *btn = &mouse->button;
-    HIDDataDescriptor *orien = &mouse->orientation;
+    HIDDataDescriptor *btn = &dev->button;
+    HIDDataDescriptor *orien = &dev->orientation;
     
     // PVID=046D:C092 G102 LIGHTSYNC Gaming Mouse
-    mouse->report_length = 8;
+    dev->report_length = 8;
 
     btn->physical_minimum = 1;
     btn->physical_maximum = 16;
@@ -254,36 +223,36 @@ static int parser_hid_report(HIDMouse *mouse, uint8_t *report, uint16_t len)
     return 0;
 }
 
-int hid_mouse_open(USBHIDDevice *usbhid_dev, HIDMouse *mouse)
+int hid_mouse_open(USBHIDDevice *usbhid_dev, HIDMouse *dev)
 {
     int ret;
 
-    if (mouse == NULL || usbhid_dev == NULL) {
-        ERROR("param %s can't be NULL", mouse == NULL ? "mouse": "usbhid_dev");
+    if (dev == NULL || usbhid_dev == NULL) {
+        ERROR("param %s can't be NULL", dev == NULL ? "dev": "usbhid_dev");
         return USBHID_ERRNO_PARAM_INVALID;
     }
     if (usbhid_dev->hid_type != USBHID_TYPE_MOUSE) {
         return USBHID_ERRNO_NOT_SUPPORT;
     }
 
-    memset(mouse, 0, sizeof(HIDMouse));
-    mouse->hid_dev = usbhid_dev;
+    memset(dev, 0, sizeof(HIDMouse));
+    dev->hid_dev = usbhid_dev;
 
-    ret = parser_hid_report(mouse,
+    ret = parser_hid_report(dev,
         usbhid_dev->raw_hid_report_desc,
         usbhid_dev->raw_hid_report_desc_len);
     if (ret < 0) {
         ERROR("parser hid report failed, not support");
         return USBHID_ERRNO_NOT_SUPPORT;
     }
+    assert(dev->report_length != 0);
 
-    mouse->report_buffer_length = mouse->report_length * 2;
-    mouse->report_buffer = (uint8_t *)malloc(mouse->report_buffer_length);
-    if (mouse->report_buffer == NULL) {
-        ERROR("allocate report buffer failed");
-        return USBHID_ERRNO_ERROR;
+    ret = usbhid_alloc_report_buffer(usbhid_dev, dev->report_length);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("allocate report buffer(length=%d) failed",
+            dev->report_length);
+        return USBHID_ERRNO_ALLOC_FAILED;
     }
-    memset(mouse->report_buffer, 0, mouse->report_buffer_length);
 
     return USBHID_ERRNO_SUCCESS;
 }

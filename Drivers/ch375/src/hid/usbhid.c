@@ -24,31 +24,129 @@
 #define HID_REPORT_TYPE_INPUT         0x01
 #define HID_REPORT_TYPE_OUTPUT        0x02
 #define HID_REPORT_TYPE_FEATURE       0x03
- 
 
-int usbhid_read(USBHIDDevice *hiddev, uint8_t *buffer, int length, int *actual_len)
+void usbhid_free_report_buffer(USBHIDDevice *dev)
 {
-    USBDevice *udev;
+    if (dev == NULL) {
+        return;
+    }
+    if (dev->report_buffer) {
+        free(dev->report_buffer);
+        dev->report_buffer = NULL;
+    }
+    dev->report_length = 0;
+    dev->report_buffer_length = 0;
+    dev->report_buffer_last_offset = 0;
+}
+
+int usbhid_alloc_report_buffer(USBHIDDevice *dev, uint32_t length)
+{
+    uint8_t *buf;
+    uint32_t buf_len;
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    if (dev->report_buffer) {
+        ERROR("last report buffer not free");
+        assert(0);
+        return USBHID_ERRNO_ERROR;
+    }
+    buf_len = length * 2;
+    buf = (uint8_t *)malloc(buf_len);
+    if (buf == NULL) {
+        ERROR("allocate report buffer failed");
+        return USBHID_ERRNO_ERROR;
+    }
+    memset(buf, 0, buf_len);
+
+    dev->report_length = length;
+    dev->report_buffer = buf;
+    dev->report_buffer_length = buf_len;
+    dev->report_buffer_last_offset = 0;
+    return USBHID_ERRNO_SUCCESS;
+}
+
+static int usbhid_read(USBHIDDevice *dev, uint8_t *buffer, int length, int *actual_len)
+{
+    assert(dev);
+    assert(buffer);
+    // actual_len can be NULL
+    USBDevice *udev = dev->udev;
     int ret;
 
-    if (hiddev == NULL) {
-        ERROR("param hiddev can't be NULL");
+    ret = ch375_host_interrupt_transfer(udev, dev->ep_in,
+        buffer, length, actual_len, TRANSFER_TIMEOUT);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("transfer(ep=0x%02X) failed, ret=%d", dev->ep_in, ret);
+        if (ret == CH375_HST_ERRNO_DEV_DISCONNECT) {
+            return USBHID_ERRNO_NO_DEV;
+        }
+        return USBHID_ERRNO_IO_ERROR;
+    }
+    return USBHID_ERRNO_SUCCESS;
+}
+
+static inline uint8_t *get_report_buffer(USBHIDDevice *dev, uint8_t is_last)
+{
+    assert(dev);
+
+    if (dev->report_buffer == NULL) {
+        return NULL;
+    }
+    if (is_last) {
+        return dev->report_buffer + dev->report_buffer_last_offset;
+    } else {
+        uint8_t offset;
+        offset = dev->report_buffer_last_offset ? 0: dev->report_buffer_last_offset;
+        return dev->report_buffer + offset;
+    }
+}
+
+int usbhid_get_report_buffer(USBHIDDevice *dev, uint8_t **buffer, uint32_t *length, uint8_t is_last)
+{
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
     if (buffer == NULL) {
         ERROR("param buffer can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    udev = hiddev->udev;
+    *buffer = get_report_buffer(dev, is_last);
+    if (length == NULL) {
+        return USBHID_ERRNO_SUCCESS;
+    }
+    if (*buffer == NULL) {
+        *length = 0;
+    } else {
+        *length = dev->report_length;
+    }
+    return USBHID_ERRNO_SUCCESS;
+}
 
-    ret = ch375_host_interrupt_transfer(udev, hiddev->ep_in,
-        buffer, length, actual_len, TRANSFER_TIMEOUT);
-    if (ret != CH375_HST_ERRNO_SUCCESS) {
-        ERROR("transfer(ep=0x%02X) failed, ret=%d", hiddev->ep_in, ret);
-        if (ret == CH375_HST_ERRNO_DEV_DISCONNECT) {
-            return USBHID_ERRNO_NO_DEV;
-        }
-        return USBHID_ERRNO_IO_ERROR;
+int usbhid_fetch_report(USBHIDDevice *dev)
+{
+    uint8_t *last_report_buffer;
+    int actual_len;
+    int ret;
+    // read new data to last_report_buffer
+    last_report_buffer = get_report_buffer(dev, 1);
+    if (last_report_buffer == NULL) {
+        ERROR("report buffer not allocated");
+        return USBHID_ERRNO_BUFFER_NOT_ALLOC;
+    }
+    ret = usbhid_read(dev, last_report_buffer,
+        dev->report_length, &actual_len);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("fetch report failed, ret=%d", ret);
+        return ret;
+    }
+    // switch buffer
+    if (dev->report_buffer_last_offset) {
+        dev->report_buffer_last_offset = 0;
+    } else {
+        dev->report_buffer_last_offset = dev->report_length;
     }
     return USBHID_ERRNO_SUCCESS;
 }
@@ -198,7 +296,7 @@ static int get_hid_descriptor(USBDevice *udev, uint8_t interface_num, HIDDescrip
     return -1;
 }
 
-int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
+int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *dev)
 {
     HIDDescriptor *desc = NULL;
     uint8_t *raw_hid_report_desc = NULL;
@@ -224,7 +322,7 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
         return USBHID_ERRNO_NOT_SUPPORT;
     }
 
-    memset(hiddev, 0, sizeof(USBHIDDevice));
+    memset(dev, 0, sizeof(USBHIDDevice));
 
     set_idle(udev, interface_num, 0, 0);
     INFO("set idle done");
@@ -264,13 +362,13 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *hiddev)
         goto failed;
     }
 
-    hiddev->udev = udev;
-    hiddev->interface_num = interface_num;
-    hiddev->ep_in = ep_in;
-    hiddev->raw_hid_report_desc = raw_hid_report_desc;
-    hiddev->raw_hid_report_desc_len = raw_hid_report_desc_len;
-    hiddev->hid_desc = desc;
-    hiddev->hid_type = hid_type;
+    dev->udev = udev;
+    dev->interface_num = interface_num;
+    dev->ep_in = ep_in;
+    dev->raw_hid_report_desc = raw_hid_report_desc;
+    dev->raw_hid_report_desc_len = raw_hid_report_desc_len;
+    dev->hid_desc = desc;
+    dev->hid_type = hid_type;
 
     return USBHID_ERRNO_SUCCESS;
 failed:
@@ -281,14 +379,14 @@ failed:
     return result;
 }
 
-void usbhid_close(USBHIDDevice *hiddev)
+void usbhid_close(USBHIDDevice *dev)
 {
-    if (hiddev == NULL) {
+    if (dev == NULL) {
         return;
     }
-    if (hiddev->raw_hid_report_desc) {
-        free(hiddev->raw_hid_report_desc);
-        hiddev->raw_hid_report_desc = NULL;
+    if (dev->raw_hid_report_desc) {
+        free(dev->raw_hid_report_desc);
+        dev->raw_hid_report_desc = NULL;
     }
-    memset(hiddev, 0, sizeof(USBHIDDevice));
+    memset(dev, 0, sizeof(USBHIDDevice));
 }
