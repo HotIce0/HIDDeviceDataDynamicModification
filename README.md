@@ -6,6 +6,7 @@ With this project, You can cheat in FPS games.
 - Y] HID Host
 - Y] HID Host Mouse
 - X] HID Host Keyboard
+- T] Optimize HID Host code
 - T] HID Device(composite device[mouse, keyboard])
 - T] Finish HID data transmission
 - T] HID data dynamic modification
