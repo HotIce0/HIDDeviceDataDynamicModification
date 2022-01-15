@@ -137,15 +137,6 @@ int hid_mouse_get_orientation(HIDMouse *mouse, uint32_t axis_num, int32_t *value
             assert(0);
             break;
     }
-    DEBUG("##GET BTN:%02X %02X X:%02X %02X Y:%02X %02X WHEEL:%02X UNKOWN:%02X",
-        report_buf[0],
-        report_buf[1],
-        report_buf[2],
-        report_buf[3],
-        report_buf[4],
-        report_buf[5],
-        report_buf[6],
-        report_buf[7]);
 
     return USBHID_ERRNO_SUCCESS;
 }
@@ -205,15 +196,15 @@ int hid_mouse_fetch_report(HIDMouse *mouse)
         return ret;
     }
     // DEBUG: dump report
-    DEBUG("BTN:%02X %02X X:%02X %02X Y:%02X %02X WHEEL:%02X UNKOWN:%02X",
-        last_report_buffer[0],
-        last_report_buffer[1],
-        last_report_buffer[2],
-        last_report_buffer[3],
-        last_report_buffer[4],
-        last_report_buffer[5],
-        last_report_buffer[6],
-        last_report_buffer[7]);
+    // DEBUG("BTN:%02X %02X X:%02X %02X Y:%02X %02X WHEEL:%02X UNKOWN:%02X",
+    //     last_report_buffer[0],
+    //     last_report_buffer[1],
+    //     last_report_buffer[2],
+    //     last_report_buffer[3],
+    //     last_report_buffer[4],
+    //     last_report_buffer[5],
+    //     last_report_buffer[6],
+    //     last_report_buffer[7]);
     // switch buffer
     if (mouse->report_buffer_last_offset) {
         mouse->report_buffer_last_offset = 0;
