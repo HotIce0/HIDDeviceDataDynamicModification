@@ -24,6 +24,20 @@ static inline uint8_t *get_report_buffer(HIDMouse *mouse, uint8_t is_last)
     }
 }
 
+int hid_mouse_get_report_buffer(HIDMouse *mouse, uint8_t **buffer, uint8_t is_last)
+{
+    if (mouse == NULL) {
+        ERROR("param mouse can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    if (buffer == NULL) {
+        ERROR("param buffer can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    *buffer = get_report_buffer(mouse, is_last);
+    return USBHID_ERRNO_SUCCESS;
+}
+
 int hid_mouse_get_button(HIDMouse *mouse, uint32_t button_num, uint32_t *value, uint8_t is_last)
 {
     HIDDataDescriptor *desc;

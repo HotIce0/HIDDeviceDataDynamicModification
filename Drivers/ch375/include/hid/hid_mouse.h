@@ -12,17 +12,20 @@
 #define HID_MOUSE_AXIS_Y 1
 
 typedef struct HIDMouse {
+    // public
     USBHIDDevice *hid_dev;
 
     HIDDataDescriptor button;
     HIDDataDescriptor orientation;
     uint32_t report_length;
 
+    // private (do not use it)
     uint8_t *report_buffer; // [current report, last report]
     uint32_t report_buffer_length; // report_buffer_length = 2 * report_length
     uint32_t report_buffer_last_offset;
 } HIDMouse;
 
+int hid_mouse_get_report_buffer(HIDMouse *mouse, uint8_t **buffer, uint8_t is_last);
 
 int hid_mouse_get_button(HIDMouse *mouse, uint32_t button_num, uint32_t *value, uint8_t is_last);
 int hid_mouse_set_button(HIDMouse *mouse, uint32_t button_num, uint32_t value, uint8_t is_last);
