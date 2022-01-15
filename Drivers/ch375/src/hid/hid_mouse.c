@@ -252,6 +252,8 @@ static int parser_hid_report(HIDMouse *mouse, uint8_t *report, uint16_t len)
     btn->count = 16;
     btn->report_buf_off = 0;
 
+    orien->physical_minimum = 1;
+    orien->physical_maximum = 2;
     orien->logical_minimum = -32767;
     orien->logical_maximum = 32767;
     orien->size = 16;
