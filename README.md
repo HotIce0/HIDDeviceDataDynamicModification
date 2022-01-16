@@ -5,9 +5,9 @@ With this project, You can cheat in FPS games.
 - Y] USB host basic api
 - Y] HID Host
 - Y] HID Host Mouse
-- X] HID Host Keyboard
-- T] Optimize HID Host code
-- T] HID Device(composite device[mouse, keyboard])
+- Y] HID Host Keyboard
+- Y] Optimize HID Host code
+- X] HID Device(composite device[mouse, keyboard])
 - T] Finish HID data transmission
 - T] HID data dynamic modification
 
@@ -43,3 +43,7 @@ With this project, You can cheat in FPS games.
 
 4. CH375 offical documents (offical website is http://www.wch.cn/products/CH375.html, you can find more docs from here)
 > CH375DS1.PDF, CH375DS2.PDF
+
+
+## Remaining Problems
+1. 0951:16D2 HyperX Alloy FPS Pro Mechanical Gaming Keyboard, control transfer error(token send failed) after set configuration.
