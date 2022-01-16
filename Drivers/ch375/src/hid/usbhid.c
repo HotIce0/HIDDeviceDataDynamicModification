@@ -94,17 +94,20 @@ static inline uint8_t *get_report_buffer(USBHIDDevice *dev, uint8_t is_last)
     if (dev->report_buffer == NULL) {
         return NULL;
     }
+    
     if (is_last) {
         return dev->report_buffer + dev->report_buffer_last_offset;
     } else {
-        uint8_t offset;
-        offset = dev->report_buffer_last_offset ? 0: dev->report_buffer_last_offset;
+        uint32_t offset;
+        offset = dev->report_buffer_last_offset ? 0: dev->report_length;
         return dev->report_buffer + offset;
     }
 }
 
 int usbhid_get_report_buffer(USBHIDDevice *dev, uint8_t **buffer, uint32_t *length, uint8_t is_last)
 {
+    uint8_t *buf;
+
     if (dev == NULL) {
         ERROR("param dev can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
@@ -113,41 +116,52 @@ int usbhid_get_report_buffer(USBHIDDevice *dev, uint8_t **buffer, uint32_t *leng
         ERROR("param buffer can't be NULL");
         return USBHID_ERRNO_PARAM_INVALID;
     }
-    *buffer = get_report_buffer(dev, is_last);
-    if (length == NULL) {
-        return USBHID_ERRNO_SUCCESS;
+    buf = get_report_buffer(dev, is_last);
+    if (buf == NULL) {
+        ERROR("report buffer not allocated");
+        return USBHID_ERRNO_BUFFER_NOT_ALLOC;
     }
-    if (*buffer == NULL) {
-        *length = 0;
-    } else {
+
+    if (buffer != NULL) {
+        *buffer = buf;
+    }
+    if (length != NULL) {
         *length = dev->report_length;
     }
+
     return USBHID_ERRNO_SUCCESS;
 }
 
 int usbhid_fetch_report(USBHIDDevice *dev)
 {
     uint8_t *last_report_buffer;
-    int actual_len;
+    int actual_len = 0;
     int ret;
     // read new data to last_report_buffer
     last_report_buffer = get_report_buffer(dev, 1);
+    
     if (last_report_buffer == NULL) {
         ERROR("report buffer not allocated");
         return USBHID_ERRNO_BUFFER_NOT_ALLOC;
     }
+
     ret = usbhid_read(dev, last_report_buffer,
         dev->report_length, &actual_len);
     if (ret != USBHID_ERRNO_SUCCESS) {
         ERROR("fetch report failed, ret=%d", ret);
         return ret;
     }
+    // INFO("read report:%p", last_report_buffer);
+
     // switch buffer
     if (dev->report_buffer_last_offset) {
         dev->report_buffer_last_offset = 0;
     } else {
         dev->report_buffer_last_offset = dev->report_length;
     }
+    // INFO("after switched, last buffer=%p, now buffer=%p",
+    //     get_report_buffer(dev, 1),
+    //     get_report_buffer(dev, 0));
     return USBHID_ERRNO_SUCCESS;
 }
 
@@ -157,7 +171,6 @@ static int parser_hid_report(uint8_t *report, uint16_t len, uint8_t *hid_type)
     HIDItem item = {0};
     uint8_t *end = report + len;
     uint8_t *cur = report;
-    
     // first item must be generic desktop
     cur = hid_fetch_item(cur, end, &item);
     if (cur == NULL) {
@@ -209,9 +222,9 @@ static int hid_get_class_descriptor(USBDevice *udev, uint8_t interface_num,
     uint8_t type, uint8_t *buf, uint16_t len)
 {
     assert(udev);
-    int actual_len;
-    int ret;
     uint8_t retries = 4;
+    int actual_len = 0;
+    int ret;
 
     do {
         ret = ch375_host_control_transfer(udev,
@@ -253,7 +266,7 @@ static void set_idle(USBDevice *udev, uint8_t interface_num,
 {
     assert(udev);
     int ret;
-    
+
     ret = ch375_host_control_transfer(udev,
         USB_ENDPOINT_OUT | USB_REQUEST_TYPE_CLASS | USB_RECIPIENT_INTERFACE,
         HID_SET_IDLE,
@@ -261,9 +274,33 @@ static void set_idle(USBDevice *udev, uint8_t interface_num,
         interface_num,
         NULL, 0, NULL, TRANSFER_TIMEOUT);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
-        ERROR("set idle control(duration=0x%02X, report_id=0x%02X) transfer failed, ret=%d",
-            duration, report_id, ret);
+        ERROR("set idle control(interface_num=%d,duration=0x%02X, report_id=0x%02X) transfer failed, ret=%d",
+            interface_num, duration, report_id, ret);
     }
+}
+
+static int set_report(USBDevice *udev, uint8_t interface_num,
+    uint8_t report_type, uint8_t report_id)
+{
+    assert(udev);
+    uint8_t retries = 4;
+    int ret;
+    int actual_len = 0;
+    uint8_t data_fragment = 0x01;
+    do {
+        ret = ch375_host_control_transfer(udev,
+            USB_ENDPOINT_OUT | USB_REQUEST_TYPE_CLASS | USB_RECIPIENT_INTERFACE,
+            HID_SET_REPORT,
+            (report_type << 8) | report_id,
+            interface_num,
+            &data_fragment, sizeof(data_fragment), &actual_len, TRANSFER_TIMEOUT);
+        if (ret != CH375_HST_ERRNO_SUCCESS) {
+            ERROR("set report control(report_type=0x%02X, report_id=0x%02X) transfer failed, ret=%d",
+                report_type, report_id, ret);
+        }
+        retries--;
+    } while (actual_len != sizeof(data_fragment) && retries);
+    return ret;
 }
 
 static int get_hid_descriptor(USBDevice *udev, uint8_t interface_num, HIDDescriptor **hid_desc)
@@ -360,6 +397,18 @@ int usbhid_open(USBDevice *udev, uint8_t interface_num, USBHIDDevice *dev)
         ERROR("parser HID report failed, not support");
         result = USBHID_ERRNO_NOT_SUPPORT;
         goto failed;
+    }
+    
+    if (hid_type == USBHID_TYPE_KEYBOARD) {
+        ret = set_report(udev, interface_num, HID_REPORT_TYPE_OUTPUT, 0);
+        if (ret != USBHID_ERRNO_SUCCESS) {
+            ERROR("set report faield, interface_num=%d, report type=0x%02X, report_id=0x%02X",
+                interface_num, HID_REPORT_TYPE_OUTPUT, 0);
+            result = USBHID_ERRNO_IO_ERROR;
+            goto failed;
+        }
+        INFO("set report success, interface_num=%d, report type=0x%02X, report_id=0x%02X",
+            interface_num, HID_REPORT_TYPE_OUTPUT, 0);
     }
 
     dev->udev = udev;

@@ -86,10 +86,10 @@ int ch375_host_control_transfer(USBDevice *udev,
     tog = tog^1;
     DEBUG("send token(SETUP) done");
 
-    // DATA0
+    // DATA
     while (residue_len) {
         uint8_t len = residue_len > udev->ep0_maxpack ? udev->ep0_maxpack: residue_len;
-        uint8_t actual_len;
+        uint8_t actual_len = 0;
         
         if (SETUP_IN(request_type)) {
             // IN
@@ -122,8 +122,8 @@ int ch375_host_control_transfer(USBDevice *udev,
             // OUT
             ret = ch375_write_block_data(ctx, data + offset, len);
             if (ret != CH375_SUCCESS) {
-                ERROR("write control OUT data failed, (residue_len=%d, len=%d, actual_len=%d), ret=%d",
-                    residue_len, len, actual_len, ret);
+                ERROR("write control OUT data failed, (residue_len=%d, len=%d), ret=%d",
+                    residue_len, len, ret);
                 return CH375_HST_ERRNO_ERROR;
             }
             ret = ch375_send_token(ctx, 0, tog, USB_PID_OUT, &status);
@@ -136,8 +136,8 @@ int ch375_host_control_transfer(USBDevice *udev,
                 goto status_error;
             }
             tog = tog^1;
-            residue_len -= actual_len;
-            offset += actual_len;
+            residue_len -= len;
+            offset += len;
         }
     }
     // ACK
@@ -206,7 +206,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
 	int *actual_length, uint32_t timeout)
 {
     CH375Context *ctx = 0;
-    USBEndpoint *endpoint = 0;
+    USBEndpoint *endpoint = NULL;
     int residue_len = length;
     int offset = 0;
     uint8_t status;
@@ -498,6 +498,44 @@ int ch375_host_set_configration(USBDevice *udev, uint8_t iconfigration)
     return CH375_HST_ERRNO_SUCCESS;
 }
 
+static int reset_dev(CH375Context *ctx)
+{
+    assert(ctx);
+    int ret;
+    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_RESET);
+    if (ret != CH375_SUCCESS) {
+        ERROR("set usbmode 0x%02X for reset device failed, ret=%d",
+            CH375_USB_MODE_RESET, ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+    // wait 20ms for device reset done, TODO
+    HAL_Delay(20);
+
+    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_SOF);
+    if (ret != CH375_SUCCESS) {
+        ERROR("set usbmode 0x%02X for automatic sof generation failed, ret=%d",
+            CH375_USB_MODE_SOF, ret);
+        return CH375_HST_ERRNO_ERROR;
+    }
+
+    ret = ch375_host_wait_device_connect(ctx, RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+        ERROR("wait device connect failed, reason=%s ret=%d",
+            ret == CH375_HST_ERRNO_TIMEOUT ? "timeout": "unkown",
+            ret);
+        // set usb mode to CH375_USB_MODE_SOF, wait device connect.
+        ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_SOF);
+        if (ret != CH375_SUCCESS) {
+            ERROR("set usb mode=0x%02X failed, ret=%d", CH375_USB_MODE_SOF, ret);
+            return CH375_HST_ERRNO_ERROR;
+        }
+        return CH375_HST_ERRNO_DEV_DISCONNECT;
+    }
+    // wait 200ms for the device connection to stabilize
+    HAL_Delay(100);
+    return CH375_HST_ERRNO_SUCCESS;
+}
+
 int ch375_host_reset_dev(USBDevice *udev)
 {
     int ret;
@@ -540,43 +578,24 @@ int ch375_host_reset_dev(USBDevice *udev)
         INFO("device speed full");
     }
 
-    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_RESET);
-    if (ret != CH375_SUCCESS) {
-        ERROR("set usbmode 0x%02X for reset device failed, ret=%d",
-            CH375_USB_MODE_RESET, ret);
-        goto error;
-    }
-    // wait 15ms for device reset done, TODO
-    HAL_Delay(15);
-
-    ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_SOF);
-    if (ret != CH375_SUCCESS) {
-        ERROR("set usbmode 0x%02X for automatic sof generation failed, ret=%d",
-            CH375_USB_MODE_SOF, ret);
+    ret = reset_dev(ctx);
+    if (ret == CH375_HST_ERRNO_SUCCESS) {
+        ;
+    } else if (ret == CH375_HST_ERRNO_DEV_DISCONNECT) {
+        goto disconnect;
+    } else {
         goto error;
     }
 
-    ret = ch375_host_wait_device_connect(ctx, RESET_WAIT_DEVICE_RECONNECT_TIMEOUT_MS);
-    if (ret != CH375_HST_ERRNO_SUCCESS) {
-        ERROR("wait device connect failed, reason=%s ret=%d",
-            ret == CH375_HST_ERRNO_TIMEOUT ? "timeout": "unkown",
-            ret);
-        // set usb mode to CH375_USB_MODE_SOF, wait device connect.
-        ret = ch375_set_usb_mode(ctx, CH375_USB_MODE_SOF);
+    if (speed == CH375_USB_SPEED_LOW) {
+        ret = ch375_set_dev_speed(ctx, speed);
         if (ret != CH375_SUCCESS) {
-            ERROR("set usb mode=0x%02X failed, ret=%d", CH375_USB_MODE_SOF, ret);
-            goto error;
+            ERROR("set device speed(0x%02X) faield, ret=%d", speed, ret);
+            goto disconnect;
         }
-        goto disconnect;
     }
 
-    ret = ch375_set_dev_speed(ctx, speed);
-    if (ret != CH375_SUCCESS) {
-        ERROR("set device speed(0x%02X) faield, ret=%d", speed, ret);
-        goto disconnect;
-    }
-
-    HAL_Delay(250); // wait device connection is stable
+    HAL_Delay(100); // wait device connection is stable
 
     udev->connected = 1;
     udev->ready = 1;
@@ -681,12 +700,13 @@ int ch375_host_udev_open(CH375Context *context, USBDevice *udev)
         ep_cnt += udev->interface[i].endpoint_cnt;
     }
     INFO("deivce have %d interface, %d endpoint", udev->interface_cnt, ep_cnt);
-    
+
     ret = ch375_host_set_configration(udev, udev->configuration_value);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
         ERROR("set configration(%d) failed, ret=%d", udev->configuration_value, ret);
         goto failed;
     }
+
     INFO("set configration %d success", udev->configuration_value);
     udev->connected = 1;
 
@@ -723,8 +743,6 @@ int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout)
         if (conn_status == CH375_USB_INT_DISCONNECT) {
             continue;
         }
-        // wait 250ms for the device connection to stabilize
-        HAL_Delay(250);
         // conn_status must be CH375_USB_INT_CONNECT or CH375_USB_INT_READY
         return CH375_HST_ERRNO_SUCCESS;
     }

@@ -8,36 +8,184 @@
 
 #include "hid/hid_keyboard.h"
 
-
 int hid_keyboard_get_ctrl(HIDKeyboard *dev, uint32_t ctrl_code, uint32_t *value, uint8_t is_last)
 {
+    HIDDataDescriptor *desc;
+    uint8_t *report_buf;
+    uint8_t *field_buf;
+    uint8_t byte_off = 0;
+    uint8_t bit_off = ctrl_code & HID_KBD_CTRL_BM_OFF_MASK;
+    int ret;
+
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    desc = &dev->control;
+    if (ctrl_code > desc->physical_maximum ||
+        ctrl_code < desc->physical_minimum) {
+        ERROR("param ctrl_code is invalied, (0x%02X) out of range [0x%02X, 0x%02X]",
+            ctrl_code, desc->physical_minimum, desc->physical_maximum);
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    if (value == NULL) {
+        ERROR("param value can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+    field_buf = report_buf + desc->report_buf_off;
+
+    *value = (field_buf[byte_off] & (1 << bit_off)) ? 1: 0;
     return USBHID_ERRNO_SUCCESS;
 }
 
 int hid_keyboard_set_ctrl(HIDKeyboard *dev, uint32_t ctrl_code, uint32_t value, uint8_t is_last)
 {
+    HIDDataDescriptor *desc;
+    uint8_t *report_buf;
+    uint8_t *field_buf;
+    uint8_t byte_off = 0;
+    uint8_t bit_off = ctrl_code & HID_KBD_CTRL_BM_OFF_MASK;
+    int ret;
+
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    desc = &dev->control;
+    if (ctrl_code > desc->physical_maximum ||
+        ctrl_code < desc->physical_minimum) {
+        ERROR("param ctrl_code is invalied, (0x%02X) out of range [0x%02X, 0x%02X]",
+            ctrl_code, desc->physical_minimum, desc->physical_maximum);
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+    field_buf = report_buf + desc->report_buf_off;
+
+    field_buf[byte_off] = field_buf[byte_off] | (1 << bit_off);
     return USBHID_ERRNO_SUCCESS;
 }
 
 int hid_keyboard_get_led(HIDKeyboard *dev, uint32_t led_code, uint32_t *value, uint8_t is_last)
 {
+    HIDDataDescriptor *desc;
+    uint8_t *report_buf;
+    uint8_t *field_buf;
+    uint8_t byte_off = 0;
+    uint8_t bit_off = led_code;
+    int ret;
+
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    desc = &dev->led;
+    if (led_code > desc->physical_maximum ||
+        led_code < desc->physical_minimum) {
+        ERROR("param led_code is invalied, (0x%02X) out of range [0x%02X, 0x%02X]",
+            led_code, desc->physical_minimum, desc->physical_maximum);
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    if (value == NULL) {
+        ERROR("param value can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+    field_buf = report_buf + desc->report_buf_off;
+
+    *value = (field_buf[byte_off] & (1 << bit_off)) ? 1: 0;
     return USBHID_ERRNO_SUCCESS;
 }
 
 int hid_keyboard_set_led(HIDKeyboard *dev, uint32_t led_code, uint32_t value, uint8_t is_last)
 {
+    HIDDataDescriptor *desc;
+    uint8_t *report_buf;
+    uint8_t *field_buf;
+    uint8_t byte_off = 0;
+    uint8_t bit_off = led_code;
+    int ret;
+
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    desc = &dev->led;
+    if (led_code > desc->physical_maximum ||
+        led_code < desc->physical_minimum) {
+        ERROR("param ctrl_code is invalied, (0x%02X) out of range [0x%02X, 0x%02X]",
+            led_code, desc->physical_minimum, desc->physical_maximum);
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+    field_buf = report_buf + desc->report_buf_off;
+
+    field_buf[byte_off] = field_buf[byte_off] | (1 << bit_off);
     return USBHID_ERRNO_SUCCESS;
 }
 
 int hid_keyboard_get_key(HIDKeyboard *dev, uint32_t key_code, uint32_t *value, uint8_t is_last)
 {
+    HIDDataDescriptor *desc;
+    uint8_t *report_buf;
+    uint8_t *field_buf;
+    int i;
+    int ret;
+
+    if (dev == NULL) {
+        ERROR("param dev can't be NULL");
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+    desc = &dev->keycode;
+    if (key_code > desc->physical_maximum ||
+        key_code < desc->physical_minimum) {
+        ERROR("param ctrl_code is invalied, (0x%02X) out of range [0x%02X, 0x%02X]",
+            key_code, desc->physical_minimum, desc->physical_maximum);
+        return USBHID_ERRNO_PARAM_INVALID;
+    }
+
+    ret = usbhid_get_report_buffer(dev->hid_dev, &report_buf, NULL, is_last);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("get report buffer failed, ret=%d", ret);
+        return ret;
+    }
+    field_buf = report_buf + desc->report_buf_off;
+    // INFO("dump keybuf");
+    // hex_dump(field_buf, 6);
+    for (i = 0; i < desc->count; i++) {
+        if (field_buf[i] == key_code) {
+            *value = 1;
+            return USBHID_ERRNO_SUCCESS;
+        }
+    }
+    *value = 0;
     return USBHID_ERRNO_SUCCESS;
 }
 
-int hid_keyboard_set_key(HIDKeyboard *dev, uint32_t key_code, uint32_t value, uint8_t is_last)
-{
-    return USBHID_ERRNO_SUCCESS;
-}
+// int hid_keyboard_set_key(HIDKeyboard *dev, uint32_t key_code, uint32_t value, uint8_t is_last)
+// {
+//     return USBHID_ERRNO_SUCCESS;
+// }
 
 int hid_keyboard_fetch_report(HIDKeyboard *dev)
 {
@@ -129,7 +277,6 @@ int hid_keyboard_open(USBHIDDevice *usbhid_dev, HIDKeyboard *dev)
             dev->report_length);
         return USBHID_ERRNO_ALLOC_FAILED;
     }
-
 
     return USBHID_ERRNO_SUCCESS;
 }

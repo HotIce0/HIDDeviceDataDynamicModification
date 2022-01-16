@@ -21,6 +21,8 @@
 #define CH375_CMD_SET_USB_MODE 0x15
 #define CH375_CMD_TEST_CONNECT 0x16
 #define CH375_CMD_ABORT_NAK 0x17
+#define	CH375_CMD_SET_ENDP6	0x1C			/* 设置USB端点2/主机端点的接收器 */
+#define	CH375_CMD_SET_ENDP7	0x1D			/* 设置USB端点2/主机端点的发送器 */
 #define CH375_CMD_GET_STATUS 0x22
 #define	CH375_CMD_UNLOCK_USB 0x23		/* 设备方式: 释放当前USB缓冲区 */
 #define	CH375_CMD_RD_USB_DATA0 0x27			/* 从当前USB中断的端点缓冲区读取数据块 */
@@ -28,7 +30,7 @@
 #define	CH375_CMD_WR_USB_DATA7 0x2B			/* 向USB端点2或者主机端点的发送缓冲区写入数据块 */
 #define CH375_CMD_GET_DESC  0x46
 #define	CH375_CMD_ISSUE_TKN_X 0x4E			/* 主机方式: 发出同步令牌, 执行事务, 该命令可代替 CMD_SET_ENDP6/CMD_SET_ENDP7 + CMD_ISSUE_TOKEN */
-
+#define CH375_CMD_ISSUE_TOKEN 0x4F
 
 /**
  * @brief command result
@@ -479,8 +481,9 @@ int ch375_send_token(CH375Context *context, uint8_t ep, uint8_t tog, uint8_t pid
 
     // 7bits: in ep tog, 6bits: out ep tog, 5~0bits: must be zero
     tog_val = tog ? 0xC0: 0x00;
+    // tog_val = tog;
     // 7~4bits: ep, 3~0bits: pid
-    ep_pid = (ep << 4) | (0xF & pid);
+    ep_pid = (ep << 4) | pid;
     DEBUG("togval=0x%02X", tog_val);
     DEBUG("ep_pid=0x%02X", ep_pid);
 

@@ -32,6 +32,7 @@
 #include "ch375_usbhost.h"
 #include "hid/usbhid.h"
 #include "hid/hid_mouse.h"
+#include "hid/hid_keyboard.h"
 
 /* USER CODE END Includes */
 
@@ -157,7 +158,25 @@ static int ch375_func_query_int(CH375Context *context)
   return val == 0 ? 1 : 0;
 }
 
-#define REPORT_BUFSIZE 20
+static void loop_handle_keyboard(HIDKeyboard *dev)
+{
+  int ret;
+  uint32_t pressed;
+  while (1) {
+    ret = hid_keyboard_fetch_report(dev);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("fetch report failed, ret=%d", ret);
+      if (ret == USBHID_ERRNO_NO_DEV) {
+        return;
+      }
+    }
+
+    hid_keyboard_get_key(dev, HID_KBD_LETTER('a'), &pressed, 0);
+    if (pressed) {
+      INFO("Keyboard A is pressed");
+    }
+  }
+}
 
 static void loop_handle_mosue(HIDMouse *dev)
 {
@@ -170,7 +189,7 @@ static void loop_handle_mosue(HIDMouse *dev)
     ret = hid_mouse_fetch_report(dev);
     if (ret != USBHID_ERRNO_SUCCESS) {
       ERROR("fetch report failed, ret=%d", ret);
-      if (ret != USBHID_ERRNO_NO_DEV) {
+      if (ret == USBHID_ERRNO_NO_DEV) {
         return;
       }
     }
@@ -192,9 +211,6 @@ static void loop_handle_mosue(HIDMouse *dev)
       INFO("mouse move(%d,%d)", x, y);
     }
   }
-
-  // never
-  return;
 }
 
 /* USER CODE END 0 */
@@ -294,11 +310,20 @@ int main(void)
       goto loop;
     }
     INFO("hid mouse init success");
-
     loop_handle_mosue(&mouse);
     ERROR("go out from handle mouse loop");
+
   } else if (hid_dev.hid_type == USBHID_TYPE_KEYBOARD) {
-    
+    HIDKeyboard kbd = {0};
+    ret = hid_keyboard_open(&hid_dev, &kbd);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("HID keybaord init failed, ret=%d", ret);
+      goto loop;
+    }
+    INFO("hid keyboard init success");
+    loop_handle_keyboard(&kbd);
+    ERROR("go out from handle keyboard loop");
+
   } else {
     goto loop;
   }
