@@ -10,6 +10,8 @@ With this project, You can cheat in FPS games.
 - X] HID Device(composite device[mouse, keyboard])
 - T] Finish HID data transmission
 - T] HID data dynamic modification
+- T] HID Report Descriptor Clone
+- T] Optimize HID Device Code
 
 > Y: done
 > X: doing
@@ -47,3 +49,11 @@ With this project, You can cheat in FPS games.
 
 ## Remaining Problems
 1. 0951:16D2 HyperX Alloy FPS Pro Mechanical Gaming Keyboard, control transfer error(token send failed) after set configuration.
+
+
+## Project Structure
+- Drivers
+    - ch375: (include libraries,  usbhost, usbhid, hidkeyboard, hidmouse)
+    - ...
+- Middlewares/ST/STM32_USB_Device_Library
+    - Class/CustomHID

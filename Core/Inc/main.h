@@ -47,7 +47,7 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define CUSTOM_HID_EPIN_SIZE                         0x04U
+#define CUSTOM_HID_EPIN_SIZE                         0x08U
 #define CUSTOM_HID_EPOUT_SIZE                         0x04U
 /* USER CODE END EM */
 

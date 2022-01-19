@@ -25,7 +25,8 @@
 #include "usbd_conf.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#define ENABLE_LOG
+#include "log.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,13 +64,13 @@
   * @{
   */
 
-#define USBD_VID     1155
+#define USBD_VID     20852
 #define USBD_LANGID_STRING     1033
-#define USBD_MANUFACTURER_STRING     "STMicroelectronics"
-#define USBD_PID_FS     22352
-#define USBD_PRODUCT_STRING_FS     "STM32 Custom Human interface"
-#define USBD_CONFIGURATION_STRING_FS     "Custom HID Config"
-#define USBD_INTERFACE_STRING_FS     "Custom HID Interface"
+#define USBD_MANUFACTURER_STRING     "Hotice0"
+#define USBD_PID_FS     30472
+#define USBD_PRODUCT_STRING_FS     "NoNoNo"
+#define USBD_CONFIGURATION_STRING_FS     ""
+#define USBD_INTERFACE_STRING_FS     ""
 
 #define USB_SIZ_BOS_DESC            0x0C
 
@@ -260,6 +261,7 @@ uint8_t * USBD_FS_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
   *length = sizeof(USBD_FS_DeviceDesc);
+  // INFO("stm32: get_device descriptor");
   return USBD_FS_DeviceDesc;
 }
 

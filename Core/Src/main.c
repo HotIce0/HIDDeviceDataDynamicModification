@@ -29,6 +29,7 @@
 #include "log.h"
 
 #include "usbd_customhid.h"
+#include "composite_hid.h"
 #include "ch375_usbhost.h"
 #include "hid/usbhid.h"
 #include "hid/hid_mouse.h"
@@ -55,20 +56,6 @@ UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-enum MOUSE_BUTTONS
-{
-  MOUSE_BTN_LEFT = 1,
-  MOUSE_BTN_RIGHT = 2,
-  MOUSE_BTN_MIDDLE = 4
-};
-
-typedef struct mouse_report_t
-{
-  uint8_t buttons; //[0, 3] 1~3 btn, [4, 7] reserve
-  int8_t x;        // -127 ~ 127
-  int8_t y;        // -127 ~ 127
-  int8_t wheel;    // -127 ~ 127
-} mouse_report_t;
 
 /* USER CODE END PV */
 
@@ -90,16 +77,6 @@ typedef struct CH375Priv {
   uint16_t gpio_pin_int;
 } CH375Priv;
 
-void delay_us(uint16_t time)
-{    
-   uint16_t i=0;  
-   while(time--)
-   {
-      i=10;  //自己定义
-      while(i--) ;    
-   }
-}
-
 static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
 {
   assert(context);
@@ -111,7 +88,7 @@ static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
-  delay_us(2);
+
   DEBUG("send cmd: origin data=0x%04X", buf);
   return CH375_SUCCESS;
 }
@@ -127,7 +104,7 @@ static int ch375_func_write_data(CH375Context *context, uint8_t data)
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
-  delay_us(1);
+
   DEBUG("send cmd: origin data=0x%04X", buf);
   return CH375_SUCCESS;
 }
@@ -160,8 +137,11 @@ static int ch375_func_query_int(CH375Context *context)
 
 static void loop_handle_keyboard(HIDKeyboard *dev)
 {
+  USBHIDDevice *hiddev = dev->hid_dev;
+  uint8_t *report_buf = NULL;
+  // uint32_t pressed;
   int ret;
-  uint32_t pressed;
+
   while (1) {
     ret = hid_keyboard_fetch_report(dev);
     if (ret != USBHID_ERRNO_SUCCESS) {
@@ -171,19 +151,25 @@ static void loop_handle_keyboard(HIDKeyboard *dev)
       }
     }
 
-    hid_keyboard_get_key(dev, HID_KBD_LETTER('a'), &pressed, 0);
-    if (pressed) {
-      INFO("Keyboard A is pressed");
-    }
+
+    (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+    
+    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
+    // hid_keyboard_get_key(dev, HID_KBD_LETTER('a'), &pressed, 0);
+    // if (pressed) {
+    //   INFO("Keyboard A is pressed");
+    // }
   }
 }
 
 static void loop_handle_mosue(HIDMouse *dev)
 {
-  int32_t x;
-  int32_t y;
+  USBHIDDevice *hiddev = dev->hid_dev;
+  uint8_t *report_buf = NULL;
+  // int32_t x;
+  // int32_t y;
   int ret;
-  int i;
+  // int i;
 
   while (1) {
     ret = hid_mouse_fetch_report(dev);
@@ -193,23 +179,28 @@ static void loop_handle_mosue(HIDMouse *dev)
         return;
       }
     }
-    // Button click check
-    // hid_mouse_set_button(dev, HID_MOUSE_BUTTON_LEFT, 1, 0);
-    for (i = 0; i < dev->button.count; i++) {
-      uint32_t is_pressed;
-      (void)hid_mouse_get_button(dev, i, &is_pressed, 0);
-      if (is_pressed) {
-        INFO("button %d is pressed", i);
-      }
-    }
-    // move print
-    // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_X, 0x7FFF, 0);
-    // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_Y, 0x8001, 0);
-    (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &x, 0);
-    (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_Y, &y, 0);
-    if (!(x == 0 && y == 0)) {
-      INFO("mouse move(%d,%d)", x, y);
-    }
+
+    (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+    
+    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
+
+    // // Button click check
+    // // hid_mouse_set_button(dev, HID_MOUSE_BUTTON_LEFT, 1, 0);
+    // for (i = 0; i < dev->button.count; i++) {
+    //   uint32_t is_pressed;
+    //   (void)hid_mouse_get_button(dev, i, &is_pressed, 0);
+    //   if (is_pressed) {
+    //     INFO("button %d is pressed", i);
+    //   }
+    // }
+    // // move print
+    // // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_X, 0x7FFF, 0);
+    // // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_Y, 0x8001, 0);
+    // (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &x, 0);
+    // (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_Y, &y, 0);
+    // if (!(x == 0 && y == 0)) {
+    //   INFO("mouse move(%d,%d)", x, y);
+    // }
   }
 }
 
@@ -223,11 +214,12 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   int ret = -1;
-  mouse_report_t mouse_report = {0};
   CH375Priv priv = {0};
   CH375Context *ctx = NULL;;
   USBDevice udev = {0};
   USBHIDDevice hid_dev = {0};
+  HIDMouse mouse = {0};
+  HIDKeyboard kbd = {0};
   
   priv.huart = &huart3;
   priv.gpio_int = usb1_int_GPIO_Port;
@@ -258,100 +250,93 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  MX_GPIO_Init();
+  MX_USART3_UART_Init();
+  MX_UART4_Init();
+  #ifdef ENABLE_LOG
+  g_uart_log = &huart4;
+  #endif
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_USB_DEVICE_Init();
-  MX_USART3_UART_Init();
-  MX_UART4_Init();
+
   /* USER CODE BEGIN 2 */
 
-#ifdef ENABLE_LOG
-  g_uart_log = &huart4;
-#endif
-  
   ret = ch375_host_init(ctx);
   if (ret != CH375_HST_ERRNO_SUCCESS) {
     ERROR("ch375 init host on USART3 failed, %d\n", ret);
   }
 
-  ret = ch375_host_wait_device_connect(ctx, 5000);
-  if (ret == CH375_HST_ERRNO_ERROR) {
-    ERROR("ch375 unkown error, need reset");
-    goto loop;
-  } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
-    ERROR("ch375 wait device connecetd timeout");
-    goto loop;
-  }
-  INFO("usb device connected");
-
-  ret = ch375_host_udev_open(ctx, &udev);
-  if (ret != CH375_HST_ERRNO_SUCCESS) {
-    ERROR("ch375 udev init failed, ret=%d", ret);
-    goto loop;
-  }
-  INFO("udev init success");
-
-  ret = usbhid_open(&udev, 0, &hid_dev);
-  if (ret != USBHID_ERRNO_SUCCESS) {
-    ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
-      udev.vid, udev.pid, 0, ret);
-    goto loop;
-  }
-  INFO("usbhid init success, hid_type=%d", hid_dev.hid_type);
-
-  if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
-    HIDMouse mouse = {0};
-    ret = hid_mouse_open(&hid_dev, &mouse);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-      ERROR("HID mouse init failed, ret=%d", ret);
-      goto loop;
+  while (1) {
+    ret = ch375_host_wait_device_connect(ctx, 5000);
+    if (ret == CH375_HST_ERRNO_ERROR) {
+      ERROR("ch375 unkown error, need reset");
+      continue;
+    } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
+      ERROR("ch375 wait device connecetd timeout");
+      continue;
     }
-    INFO("hid mouse init success");
-    loop_handle_mosue(&mouse);
-    ERROR("go out from handle mouse loop");
+    INFO("usb device connected");
 
-  } else if (hid_dev.hid_type == USBHID_TYPE_KEYBOARD) {
-    HIDKeyboard kbd = {0};
-    ret = hid_keyboard_open(&hid_dev, &kbd);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-      ERROR("HID keybaord init failed, ret=%d", ret);
-      goto loop;
+    ret = ch375_host_udev_open(ctx, &udev);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+      ERROR("ch375 udev init failed, ret=%d", ret);
+      continue;
     }
-    INFO("hid keyboard init success");
-    loop_handle_keyboard(&kbd);
-    ERROR("go out from handle keyboard loop");
+    INFO("udev init success");
 
-  } else {
-    goto loop;
+    ret = usbhid_open(&udev, 0, &hid_dev);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
+        udev.vid, udev.pid, 0, ret);
+      ch375_host_udev_close(&udev);
+      continue;
+    }
+    INFO("usbhid init success, hid_type=%d", hid_dev.hid_type);
+
+    if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
+      ret = hid_mouse_open(&hid_dev, &mouse);
+      if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("HID mouse init failed, ret=%d", ret);
+        usbhid_close(&hid_dev);
+        ch375_host_udev_close(&udev);
+        continue;
+      }
+      INFO("1hid mouse init success");
+      break;
+    } else if (hid_dev.hid_type == USBHID_TYPE_KEYBOARD) {
+      ret = hid_keyboard_open(&hid_dev, &kbd);
+      if (ret != USBHID_ERRNO_SUCCESS) {
+        ERROR("HID keybaord init failed, ret=%d", ret);
+        usbhid_close(&hid_dev);
+        ch375_host_udev_close(&udev);
+        continue;
+      }
+      INFO("hid keyboard init success");
+      break;
+    } else {
+      usbhid_close(&hid_dev);
+      ch375_host_udev_close(&udev);
+    }
   }
+
+  USBD_COMPOSITE_HID_InterfaceRegister(0, (uint8_t *)hid_dev.hid_desc, hid_dev.raw_hid_report_desc, hid_dev.raw_hid_report_desc_len, 8, 1);
+  USBD_COMPOSITE_HID_Init();
+
+  MX_USB_DEVICE_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-loop:
-  while (1)
-  {
-    uint8_t is_user_btn_down = HAL_GPIO_ReadPin(user_btn_GPIO_Port, user_btn_Pin);
-
-    if (is_user_btn_down)
-    {
-      mouse_report.buttons |= MOUSE_BTN_LEFT;
-    }
-    else
-    {
-      mouse_report.buttons &= ~MOUSE_BTN_LEFT;
-    }
-
-    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, (uint8_t *)&mouse_report, sizeof(mouse_report));
-    HAL_GPIO_WritePin(orange_led_GPIO_Port, orange_led_Pin, is_user_btn_down);
-    HAL_Delay(100);
+  if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
+    loop_handle_mosue(&mouse);
+  } else {
+    loop_handle_keyboard(&kbd);
   }
-    /* USER CODE END WHILE */
+  ERROR("go out from handle mouse loop");
+  /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 3 */
   ch375_close_context(ctx);
   ctx = NULL;
   /* USER CODE END 3 */

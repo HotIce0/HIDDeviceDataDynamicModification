@@ -28,19 +28,6 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include  "usbd_ioreq.h"
 
-/** @addtogroup STM32_USB_DEVICE_LIBRARY
-  * @{
-  */
-
-/** @defgroup USBD_CUSTOM_HID
-  * @brief This file is the Header file for USBD_customhid.c
-  * @{
-  */
-
-
-/** @defgroup USBD_CUSTOM_HID_Exported_Defines
-  * @{
-  */
 #define CUSTOM_HID_EPIN_ADDR                         0x81U
 
 #ifndef CUSTOM_HID_EPIN_SIZE
@@ -53,7 +40,7 @@ extern "C" {
 #define CUSTOM_HID_EPOUT_SIZE                        0x02U
 #endif
 
-#define USB_CUSTOM_HID_CONFIG_DESC_SIZ               41U
+#define USB_CUSTOM_HID_CONFIG_DESC_SIZ               34U
 #define USB_CUSTOM_HID_DESC_SIZ                      9U
 
 #ifndef CUSTOM_HID_HS_BINTERVAL
@@ -83,28 +70,12 @@ extern "C" {
 
 #define CUSTOM_HID_REQ_SET_REPORT                    0x09U
 #define CUSTOM_HID_REQ_GET_REPORT                    0x01U
-/**
-  * @}
-  */
 
-
-/** @defgroup USBD_CORE_Exported_TypesDefinitions
-  * @{
-  */
 typedef enum
 {
   CUSTOM_HID_IDLE = 0U,
   CUSTOM_HID_BUSY,
 } CUSTOM_HID_StateTypeDef;
-
-typedef struct _USBD_CUSTOM_HID_Itf
-{
-  uint8_t *pReport;
-  int8_t (* Init)(void);
-  int8_t (* DeInit)(void);
-  int8_t (* OutEvent)(uint8_t event_idx, uint8_t state);
-
-} USBD_CUSTOM_HID_ItfTypeDef;
 
 typedef struct
 {
@@ -115,56 +86,19 @@ typedef struct
   uint32_t IsReportAvailable;
   CUSTOM_HID_StateTypeDef state;
 } USBD_CUSTOM_HID_HandleTypeDef;
-/**
-  * @}
-  */
-
-
-
-/** @defgroup USBD_CORE_Exported_Macros
-  * @{
-  */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBD_CORE_Exported_Variables
-  * @{
-  */
 
 extern USBD_ClassTypeDef USBD_CUSTOM_HID;
 #define USBD_CUSTOM_HID_CLASS &USBD_CUSTOM_HID
-/**
-  * @}
-  */
 
-/** @defgroup USB_CORE_Exported_Functions
-  * @{
-  */
 uint8_t USBD_CUSTOM_HID_SendReport(USBD_HandleTypeDef *pdev,
                                    uint8_t *report, uint16_t len);
 
 uint8_t USBD_CUSTOM_HID_ReceivePacket(USBD_HandleTypeDef *pdev);
-
-uint8_t USBD_CUSTOM_HID_RegisterInterface(USBD_HandleTypeDef *pdev,
-                                          USBD_CUSTOM_HID_ItfTypeDef *fops);
-
-/**
-  * @}
-  */
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif  /* __USB_CUSTOMHID_H */
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

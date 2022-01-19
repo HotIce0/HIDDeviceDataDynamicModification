@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #define	USB_PID_NULL	0x00			/* 保留PID, 未定义 */
 #define	USB_PID_SOF		0x05
 #define	USB_PID_SETUP	0x0D
@@ -254,6 +256,16 @@ typedef struct USBDescriptor {
     uint8_t bLength;
     uint8_t bDesriptorType;
 } USBDescriptor;
+
+typedef struct USBHIDDescriptor {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t bcdHID;
+	uint8_t bCountryCode;
+	uint8_t bNumDescriptors;
+	uint8_t bClassDescriptorType;
+	uint16_t wClassDescriptorLength;
+} USBHIDDescriptor;
 
 typedef struct USBEndpointDescriptor {
 	/** Size of this descriptor (in bytes) */
