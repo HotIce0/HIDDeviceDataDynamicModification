@@ -57,3 +57,11 @@ With this project, You can cheat in FPS games.
     - ...
 - Middlewares/ST/STM32_USB_Device_Library
     - Class/CustomHID
+
+### CH375 Use
+- CH375A
+    - USART2
+    - PE14     (Int Pin)
+- CH375B
+    - USART3
+    - PE15     (Int Pin)

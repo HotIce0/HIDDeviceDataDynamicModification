@@ -22,7 +22,6 @@
 #include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include <assert.h>
 #define ENABLE_LOG
 // #define ENABLE_DEBUG
@@ -35,45 +34,17 @@
 #include "hid/hid_mouse.h"
 #include "hid/hid_keyboard.h"
 
-/* USER CODE END Includes */
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart4;
-UART_HandleTypeDef huart3;
-
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART3_UART_Init(void);
 static void MX_UART4_Init(void);
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
 
 typedef struct CH375Priv {
   UART_HandleTypeDef *huart;
-  GPIO_TypeDef *gpio_int;
+  GPIO_TypeDef *gpio_port_int;
   uint16_t gpio_pin_int;
 } CH375Priv;
 
@@ -83,7 +54,7 @@ static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
   CH375Priv *priv = ch375_get_priv(context);
   uint16_t buf = CH375_CMD(cmd);
   uint8_t status;
-
+  
   status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, 500);
   if (status != HAL_OK) {
       return CH375_ERROR;
@@ -131,7 +102,7 @@ static int ch375_func_query_int(CH375Context *context)
 {
   assert(context);
   CH375Priv *priv = (CH375Priv *)ch375_get_priv(context);
-  uint8_t val = HAL_GPIO_ReadPin(priv->gpio_int, priv->gpio_pin_int);
+  uint8_t val = HAL_GPIO_ReadPin(priv->gpio_port_int, priv->gpio_pin_int);
   return val == 0 ? 1 : 0;
 }
 
@@ -204,7 +175,65 @@ static void loop_handle_mosue(HIDMouse *dev)
   }
 }
 
-/* USER CODE END 0 */
+// CH375 CONFIG
+#define CH375_MODULE_NUM 2
+
+USART_TypeDef *ch375_usart[CH375_MODULE_NUM] = {USART2, USART3};
+GPIO_TypeDef *ch375_int_port[CH375_MODULE_NUM] = {ch375a_int_GPIO_Port, ch375b_int_GPIO_Port};
+uint16_t ch375_int_pin[CH375_MODULE_NUM] = {ch375a_int_Pin, ch375b_int_Pin};
+
+UART_HandleTypeDef ch375_hhuarts[CH375_MODULE_NUM] = {0};
+CH375Priv ch375_priv[CH375_MODULE_NUM] = {0};
+CH375Context *ch375_ctx[CH375_MODULE_NUM] = {0};
+
+void ch375_init(void)
+{
+  int i;
+  int ret;
+  // USART Init
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    ch375_hhuarts[i].Instance = ch375_usart[i];
+    ch375_hhuarts[i].Init.BaudRate = 9600;
+    ch375_hhuarts[i].Init.WordLength = UART_WORDLENGTH_9B;
+    ch375_hhuarts[i].Init.StopBits = UART_STOPBITS_1;
+    ch375_hhuarts[i].Init.Parity = UART_PARITY_NONE;
+    ch375_hhuarts[i].Init.Mode = UART_MODE_TX_RX;
+    ch375_hhuarts[i].Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    ch375_hhuarts[i].Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&ch375_hhuarts[i]) != HAL_OK)
+    {
+      ERROR("USART(%d) Init failed", i);
+      Error_Handler();
+    }
+  }
+  // Fill ch375_priv
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    ch375_priv[i].huart = &ch375_hhuarts[i];
+    ch375_priv[i].gpio_port_int = ch375_int_port[i];
+    ch375_priv[i].gpio_pin_int = ch375_int_pin[i];
+  }
+  // Init Context
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    ret = ch375_open_context(&ch375_ctx[i],
+            ch375_func_write_cmd,
+            ch375_func_write_data,
+            ch375_func_read_data,
+            ch375_func_query_int,
+            &ch375_priv[i]);
+    if (ret != CH375_SUCCESS) {
+      ERROR("open ch375(%d) context failed, ret=%d", i, ret);
+      Error_Handler();
+    }
+  }
+  // ch375 USB Host Init
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    ret = ch375_host_init(ch375_ctx[i]);
+    if (ret != CH375_HST_ERRNO_SUCCESS) {
+      ERROR("ch375(%d) init host failed, %d", i, ret);
+      Error_Handler();
+    }
+  }
+}
 
 /**
   * @brief  The application entry point.
@@ -212,63 +241,29 @@ static void loop_handle_mosue(HIDMouse *dev)
   */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
   int ret = -1;
-  CH375Priv priv = {0};
-  CH375Context *ctx = NULL;;
   USBDevice udev = {0};
   USBHIDDevice hid_dev = {0};
   HIDMouse mouse = {0};
   HIDKeyboard kbd = {0};
-  
-  priv.huart = &huart3;
-  priv.gpio_int = usb1_int_GPIO_Port;
-  priv.gpio_pin_int = usb1_int_Pin;
-
-  /* USER CODE END 1 */
-
+  int i = 0;
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-  ret = ch375_open_context(&ctx,
-          ch375_func_write_cmd,
-          ch375_func_write_data,
-          ch375_func_read_data,
-          ch375_func_query_int,
-          &priv);
-  if (ret != CH375_SUCCESS) {
-    ERROR("open ch375 context failed, ret=%d", ret);
-    return -1;
-  }
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
   MX_GPIO_Init();
-  MX_USART3_UART_Init();
-  MX_UART4_Init();
+
+  MX_UART4_Init(); // Log out
   #ifdef ENABLE_LOG
   g_uart_log = &huart4;
   #endif
-  /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-
-  /* USER CODE BEGIN 2 */
-
-  ret = ch375_host_init(ctx);
-  if (ret != CH375_HST_ERRNO_SUCCESS) {
-    ERROR("ch375 init host on USART3 failed, %d\n", ret);
-  }
+  ch375_init();
 
   while (1) {
-    ret = ch375_host_wait_device_connect(ctx, 5000);
+    ret = ch375_host_wait_device_connect(ch375_ctx[i], 1000);
     if (ret == CH375_HST_ERRNO_ERROR) {
       ERROR("ch375 unkown error, need reset");
       continue;
@@ -278,7 +273,7 @@ int main(void)
     }
     INFO("usb device connected");
 
-    ret = ch375_host_udev_open(ctx, &udev);
+    ret = ch375_host_udev_open(ch375_ctx[i], &udev);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
       ERROR("ch375 udev init failed, ret=%d", ret);
       continue;
@@ -324,22 +319,15 @@ int main(void)
   USBD_COMPOSITE_HID_Init();
 
   MX_USB_DEVICE_Init();
-  /* USER CODE END 2 */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
     loop_handle_mosue(&mouse);
   } else {
     loop_handle_keyboard(&kbd);
   }
   ERROR("go out from handle mouse loop");
-  /* USER CODE END WHILE */
 
-  /* USER CODE BEGIN 3 */
-  ch375_close_context(ctx);
-  ctx = NULL;
-  /* USER CODE END 3 */
+   // TODO release
 }
 
 /**
@@ -392,14 +380,6 @@ void SystemClock_Config(void)
   */
 static void MX_UART4_Init(void)
 {
-
-  /* USER CODE BEGIN UART4_Init 0 */
-
-  /* USER CODE END UART4_Init 0 */
-
-  /* USER CODE BEGIN UART4_Init 1 */
-
-  /* USER CODE END UART4_Init 1 */
   huart4.Instance = UART4;
   huart4.Init.BaudRate = 115200;
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
@@ -412,43 +392,6 @@ static void MX_UART4_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN UART4_Init 2 */
-
-  /* USER CODE END UART4_Init 2 */
-
-}
-
-/**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART3_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 9600;
-  huart3.Init.WordLength = UART_WORDLENGTH_9B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
-
 }
 
 /**
@@ -477,11 +420,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(user_btn_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : usb1_int_Pin */
-  GPIO_InitStruct.Pin = usb1_int_Pin;
+  /*Configure GPIO pin : ch375a_int_Pin */
+  GPIO_InitStruct.Pin = ch375a_int_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(usb1_int_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(ch375a_int_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ch375b_int_Pin */
+  GPIO_InitStruct.Pin = ch375b_int_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ch375b_int_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : green_led_Pin orange_led_Pin red_led_Pin blue_led_Pin */
   GPIO_InitStruct.Pin = green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin;
@@ -491,10 +440,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
