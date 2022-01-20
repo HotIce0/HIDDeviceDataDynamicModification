@@ -11,7 +11,7 @@
 #include "hid/usbhid.h"
 
 // ms
-#define TRANSFER_TIMEOUT 5000
+#define TRANSFER_TIMEOUT 1
 
 
 // HID Class-Specific Requests values. See section 7.2 of the HID specifications
@@ -78,7 +78,7 @@ static int usbhid_read(USBHIDDevice *dev, uint8_t *buffer, int length, int *actu
     ret = ch375_host_interrupt_transfer(udev, dev->ep_in,
         buffer, length, actual_len, TRANSFER_TIMEOUT);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
-        ERROR("transfer(ep=0x%02X) failed, ret=%d", dev->ep_in, ret);
+        // ERROR("transfer(ep=0x%02X) failed, ret=%d", dev->ep_in, ret); // TOTO
         if (ret == CH375_HST_ERRNO_DEV_DISCONNECT) {
             return USBHID_ERRNO_NO_DEV;
         }
@@ -148,7 +148,7 @@ int usbhid_fetch_report(USBHIDDevice *dev)
     ret = usbhid_read(dev, last_report_buffer,
         dev->report_length, &actual_len);
     if (ret != USBHID_ERRNO_SUCCESS) {
-        ERROR("fetch report failed, ret=%d", ret);
+        // ERROR("fetch report failed, ret=%d", ret); // TOTO
         return ret;
     }
     // INFO("read report:%p", last_report_buffer);

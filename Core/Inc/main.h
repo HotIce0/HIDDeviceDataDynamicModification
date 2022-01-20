@@ -62,10 +62,10 @@ void Error_Handler(void);
 #define user_btn_Pin GPIO_PIN_0
 #define user_btn_GPIO_Port GPIOA
 
-#define ch375a_int_Pin GPIO_PIN_14
-#define ch375a_int_GPIO_Port GPIOE
-#define ch375b_int_Pin GPIO_PIN_15
-#define ch375b_int_GPIO_Port GPIOE
+#define CH375A_INT_PIN GPIO_PIN_14
+#define CH375A_INT_PORT GPIOE
+#define CH375B_INT_PIN GPIO_PIN_15
+#define CH375B_INT_PORT GPIOE
 
 #define green_led_Pin GPIO_PIN_12
 #define green_led_GPIO_Port GPIOD

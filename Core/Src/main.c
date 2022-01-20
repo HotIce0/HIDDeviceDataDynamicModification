@@ -15,12 +15,21 @@
 
 #include "main.h"
 
-
-typedef struct CH375Priv {
+typedef struct DeviceIN {
+  const char *name;
+  USART_TypeDef *uart;
   UART_HandleTypeDef *huart;
   GPIO_TypeDef *gpio_port_int;
   uint16_t gpio_pin_int;
-} CH375Priv;
+
+  CH375Context *ch375_ctx;
+  USBDevice usbdev;
+  USBHIDDevice hiddev;
+  HIDMouse mouse;
+  HIDKeyboard keyboard;
+
+  uint8_t is_connected;
+} DeviceIN;
 
 static UART_HandleTypeDef s_huart2; // ch375a
 static UART_HandleTypeDef s_huart3; // ch375b
@@ -30,22 +39,18 @@ static UART_HandleTypeDef s_huart4; // log
 #define CH375_WORK_BAUDRATE 115200
 #define CH375_DEFAULT_BAUDRATE 9600
 #define CH375_MODULE_NUM 2
-GPIO_TypeDef *ch375_int_port[CH375_MODULE_NUM] = {ch375a_int_GPIO_Port, ch375b_int_GPIO_Port};
-uint16_t ch375_int_pin[CH375_MODULE_NUM] = {ch375a_int_Pin, ch375b_int_Pin};
 
-UART_HandleTypeDef *ch375_huart[CH375_MODULE_NUM] = {0};
-CH375Priv ch375_priv[CH375_MODULE_NUM] = {0};
-CH375Context *ch375_ctx[CH375_MODULE_NUM] = {0};
+static DeviceIN s_arr_devin[CH375_MODULE_NUM] = {0};
 
 
 static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
 {
   assert(context);
-  CH375Priv *priv = ch375_get_priv(context);
+  DeviceIN *devin = (DeviceIN *)ch375_get_priv(context);
   uint16_t buf = CH375_CMD(cmd);
   uint8_t status;
   
-  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, 500);
+  status = HAL_UART_Transmit(devin->huart, (uint8_t *)&buf, 1, 500);
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
@@ -57,32 +62,32 @@ static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
 static int ch375_func_write_data(CH375Context *context, uint8_t data)
 {
   assert(context);
-  CH375Priv *priv = ch375_get_priv(context);
+  DeviceIN *devin = (DeviceIN *)ch375_get_priv(context);
   uint16_t buf = CH375_DATA(data);
   uint8_t status;
 
-  status = HAL_UART_Transmit(priv->huart, (uint8_t *)&buf, 1, 500);
+  status = HAL_UART_Transmit(devin->huart, (uint8_t *)&buf, 1, 500);
   if (status != HAL_OK) {
       return CH375_ERROR;
   }
 
-  DEBUG("send cmd: origin data=0x%04X", buf);
+  DEBUG("(%s) send cmd: origin data=0x%04X", devin->name, buf);
   return CH375_SUCCESS;
 }
 
 static int ch375_func_read_data(CH375Context *context, uint8_t *data)
 {
   assert(context);
-  CH375Priv *priv = ch375_get_priv(context);
+  DeviceIN *devin = (DeviceIN *)ch375_get_priv(context);
   uint16_t buf = 0;
   uint8_t status;
 
-  status = HAL_UART_Receive(priv->huart, (uint8_t *)&buf, 1, 500);//HAL_MAX_DELAY
+  status = HAL_UART_Receive(devin->huart, (uint8_t *)&buf, 1, 500);//HAL_MAX_DELAY
   if (status != HAL_OK) {
       ERROR("uart receive failed %d", status);
       return CH375_ERROR;
   }
-  DEBUG("receive data: origin data=0x%04X", buf);
+  DEBUG("(%s) receive data: origin data=0x%04X", devin->name, buf);
   *data = 0xFF & buf;
   return CH375_SUCCESS;
 }
@@ -91,48 +96,72 @@ static int ch375_func_read_data(CH375Context *context, uint8_t *data)
 static int ch375_func_query_int(CH375Context *context)
 {
   assert(context);
-  CH375Priv *priv = (CH375Priv *)ch375_get_priv(context);
-  uint8_t val = HAL_GPIO_ReadPin(priv->gpio_port_int, priv->gpio_pin_int);
+  DeviceIN *devin = (DeviceIN *)ch375_get_priv(context);
+  uint8_t val = HAL_GPIO_ReadPin(devin->gpio_port_int, devin->gpio_pin_int);
   return val == 0 ? 1 : 0;
 }
 
-static void loop_handle_keyboard(HIDKeyboard *dev)
+static int handle_keyboard(HIDKeyboard *dev, uint8_t interface_num)
 {
   USBHIDDevice *hiddev = dev->hid_dev;
   uint8_t *report_buf = NULL;
   int ret;
-
-  while (1) {
-    ret = hid_keyboard_fetch_report(dev);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-      ERROR("fetch report failed, ret=%d", ret);
-      if (ret == USBHID_ERRNO_NO_DEV) {
-        return;
-      }
-    }
-    (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
-    
-    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
+  ret = hid_keyboard_fetch_report(dev);
+  if (ret != USBHID_ERRNO_SUCCESS) {
+    // ERROR("fetch report failed, ret=%d", ret); // TOTO
+    return ret;
   }
+  (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+  
+  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);
+  return USBHID_ERRNO_SUCCESS;
 }
 
-static void loop_handle_mosue(HIDMouse *dev)
+static int handle_mosue(HIDMouse *dev, uint8_t interface_num)
 {
   USBHIDDevice *hiddev = dev->hid_dev;
   uint8_t *report_buf = NULL;
   int ret;
 
+  ret = hid_mouse_fetch_report(dev);
+  if (ret != USBHID_ERRNO_SUCCESS) {
+    // ERROR("fetch report failed, ret=%d", ret); // TOTO
+    return ret;
+  }
+  (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+  
+  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);
+  return USBHID_ERRNO_SUCCESS;
+}
+
+static int loop_handle_devin()
+{
+  int i;
+  int ret;
+
   while (1) {
-    ret = hid_mouse_fetch_report(dev);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-      ERROR("fetch report failed, ret=%d", ret);
+
+    for (i = 0; i <  CH375_MODULE_NUM; i++) {
+      DeviceIN *devin = &s_arr_devin[i];
+
+      ret = USBHID_ERRNO_SUCCESS; // TODO: remove this
+
+      if (devin->hiddev.hid_type == USBHID_TYPE_MOUSE) {
+        ret = handle_mosue(&devin->mouse, i);
+      }
+      if (devin->hiddev.hid_type == USBHID_TYPE_KEYBOARD) {
+        ret = handle_keyboard(&devin->keyboard, (uint8_t)i);
+      }
+
       if (ret == USBHID_ERRNO_NO_DEV) {
-        return;
+        ERROR("(%s) DeviceIN disconnected", devin->name);
+        return -1;
+      } else if (ret != USBHID_ERRNO_SUCCESS) {
+        // ERROR("(%s) DeviceIN handle failed, ret=%d", devin->name, ret); // TOTO
+        // TODO: retry max
       }
     }
-    (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
-    
-    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
+
   }
 }
 
@@ -182,49 +211,56 @@ static void uart_deinit(UART_HandleTypeDef *huart, const char *name)
   }
 }
 
-void ch375_init(void)
+void devin_init(void)
 {
   int i;
   int ret;
 
-  ch375_huart[0] = &s_huart2;
-  ch375_huart[1] = &s_huart3;
-  // UART Init
-  uart_init(&s_huart2, "usart2", USART2, CH375_DEFAULT_BAUDRATE, 0, 1, 1);
-  uart_init(&s_huart3, "usart3", USART3, CH375_DEFAULT_BAUDRATE, 0, 1, 1);
+  s_arr_devin[0].uart = USART2;
+  s_arr_devin[0].name = "CH375A";
+  s_arr_devin[0].huart = &s_huart2;
+  s_arr_devin[0].gpio_port_int = CH375A_INT_PORT;
+  s_arr_devin[0].gpio_pin_int = CH375A_INT_PIN;
 
-  // Fill ch375_priv
+  s_arr_devin[1].uart = USART3;
+  s_arr_devin[1].name = "CH375B";
+  s_arr_devin[1].huart = &s_huart3;
+  s_arr_devin[1].gpio_port_int = CH375B_INT_PORT;
+  s_arr_devin[1].gpio_pin_int = CH375B_INT_PIN;
+  
+  
+  // UART Init
   for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ch375_priv[i].huart = ch375_huart[i];
-    ch375_priv[i].gpio_port_int = ch375_int_port[i];
-    ch375_priv[i].gpio_pin_int = ch375_int_pin[i];
+    uart_init(s_arr_devin[i].huart, s_arr_devin[i].name,
+      s_arr_devin[i].uart, CH375_DEFAULT_BAUDRATE, 0, 1, 1);
   }
+
   // Init Context
   for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ret = ch375_open_context(&ch375_ctx[i],
+    ret = ch375_open_context(&s_arr_devin[i].ch375_ctx,
             ch375_func_write_cmd,
             ch375_func_write_data,
             ch375_func_read_data,
             ch375_func_query_int,
-            &ch375_priv[i]);
+            &s_arr_devin[i]);
     if (ret != CH375_SUCCESS) {
       ERROR("open ch375(%d) context failed, ret=%d", i, ret);
       Error_Handler();
     }
   }
-  // ch375 USB Host Init
+  // CH375 USB Host Init
   for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ret = ch375_host_init(ch375_ctx[i], CH375_WORK_BAUDRATE);
+    ret = ch375_host_init(s_arr_devin[i].ch375_ctx, CH375_WORK_BAUDRATE);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
       ERROR("ch375(%d) init host failed, %d", i, ret);
       Error_Handler();
     }
   }
   // reinit uart to work baudrate
-  uart_deinit(&s_huart2, "usart2");
-  uart_deinit(&s_huart3, "usart3");
-  uart_init(&s_huart2, "usart2", USART2, CH375_WORK_BAUDRATE, 0, 1, 1);
-  uart_init(&s_huart3, "usart3", USART3, CH375_WORK_BAUDRATE, 0, 1, 1);
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    uart_deinit(s_arr_devin[i].huart, s_arr_devin[i].name);
+    uart_init(s_arr_devin[i].huart, s_arr_devin[i].name, s_arr_devin[i].uart, CH375_WORK_BAUDRATE, 0, 1, 1);
+  }
 }
 
 /**
@@ -307,17 +343,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(user_btn_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ch375a_int_Pin */
-  GPIO_InitStruct.Pin = ch375a_int_Pin;
+  /*Configure GPIO pin : CH375A_INT_PIN */
+  GPIO_InitStruct.Pin = CH375A_INT_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(ch375a_int_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(CH375A_INT_PORT, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ch375b_int_Pin */
-  GPIO_InitStruct.Pin = ch375b_int_Pin;
+  /*Configure GPIO pin : CH375B_INT_PIN */
+  GPIO_InitStruct.Pin = CH375B_INT_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(ch375b_int_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(CH375B_INT_PORT, &GPIO_InitStruct);
 
   /*Configure GPIO pins : green_led_Pin orange_led_Pin red_led_Pin blue_led_Pin */
   GPIO_InitStruct.Pin = green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin;
@@ -355,15 +391,134 @@ void assert_failed(uint8_t *file, uint32_t line)
 }
 #endif /* USE_FULL_ASSERT */
 
+static void open_device_out()
+{
+  uint8_t status;
+  uint8_t i;
+
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    DeviceIN *devin = &s_arr_devin[i];
+    USBHIDDevice *hiddev = &devin->hiddev;
+    // TODO: get actual maxpack and interval
+    status = USBD_COMPOSITE_HID_InterfaceRegister(i,
+      (uint8_t *)hiddev->hid_desc, hiddev->raw_hid_report_desc, hiddev->raw_hid_report_desc_len, 8, 1);
+    if (status != HAL_OK) {
+      ERROR("DeviceOUT interface register failed, status=0x%02X", status);
+      assert(status == HAL_OK);
+    }
+  }
+
+  status = USBD_COMPOSITE_HID_Init();
+  if (status != HAL_OK) {
+    ERROR("DeviceOUT init failed, status=0x%02X", status);
+    assert(status == HAL_OK);
+  }
+}
+
+static int open_device_in(DeviceIN *devin)
+{
+  assert(devin);
+
+  USBDevice *udev = &devin->usbdev;
+  USBHIDDevice *hiddev = &devin->hiddev;
+  HIDMouse *mouse = &devin->mouse;
+  HIDKeyboard *keyboard = &devin->keyboard;
+  int ret;
+
+  ret = ch375_host_udev_open(devin->ch375_ctx, udev);
+  if (ret != CH375_HST_ERRNO_SUCCESS) {
+    ERROR("(%s) ch375 udev init failed, ret=%d", devin->name, ret);
+    return -1;
+  }
+  INFO("(%s) usb dev init success", devin->name);
+
+  // TODO: actual interface number maybe not zero
+  ret = usbhid_open(udev, 0, hiddev);
+  if (ret != USBHID_ERRNO_SUCCESS) {
+    ERROR("(%s) usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
+      devin->name, udev->vid, udev->pid, 0, ret);
+    goto free_udev;
+  }
+  INFO("(%s) usbhid init success, hid_type=%d", devin->name, hiddev->hid_type);
+
+  // open HID class device
+  if (hiddev->hid_type == USBHID_TYPE_MOUSE) {
+    ret = hid_mouse_open(hiddev, mouse);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("(%s) HID mouse init failed, ret=%d", devin->name, ret);
+      goto free_hid;
+    }
+    INFO("(%s) hid mouse init success", devin->name);
+
+  } else if (hiddev->hid_type == USBHID_TYPE_KEYBOARD) {
+    ret = hid_keyboard_open(hiddev, keyboard);
+    if (ret != USBHID_ERRNO_SUCCESS) {
+      ERROR("(%s) HID keybaord init failed, ret=%d", devin->name, ret);
+      goto free_hid;
+    }
+    INFO("(%s) hid keyboard init success", devin->name);
+
+  } else {
+    ERROR("(%s) hid type is invalied 0x%02X", devin->name, hiddev->hid_type);
+    goto free_hid;
+  }
+
+  return 0;
+free_hid:
+  usbhid_close(hiddev);
+  hiddev = NULL;
+free_udev:
+  ch375_host_udev_close(udev);
+  udev = NULL;
+  return -1;
+}
+
+static int open_all_device_in()
+{
+  int i;
+  int ret;
+
+  for (i = 0; i < CH375_MODULE_NUM; i++) {
+    ret = open_device_in(&s_arr_devin[i]);
+    if (ret < 0) {
+      ERROR("open DeviceIN %s failed", s_arr_devin[i].name);
+      return -1;
+    }
+  }
+  INFO("all DeviceIN open success");
+  return 0;
+}
+
+static void wait_all_in_device_connect()
+{
+  uint8_t not_conn;
+  int i;
+  int ret;
+  
+  while (1) {
+    not_conn = 0;
+    for (i = 0; i < CH375_MODULE_NUM; i++) {
+      ret = ch375_host_wait_device_connect(s_arr_devin[i].ch375_ctx, 500);
+      if (ret == CH375_HST_ERRNO_ERROR) {
+        ERROR("ch375 unkown error, need reset");
+        not_conn = 1;
+        continue;
+      } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
+        ERROR("ch375 wait device(%d) connecetd timeout");
+        not_conn = 1;
+        continue;
+      }
+      INFO("usb device(%d) connected", i);
+    }
+    if (not_conn == 0) {
+      break;
+    }
+  }
+}
 
 int main(void)
 {
   int ret = -1;
-  USBDevice udev = {0};
-  USBHIDDevice hid_dev = {0};
-  HIDMouse mouse = {0};
-  HIDKeyboard kbd = {0};
-  int i = 0;
 
   HAL_Init();
   SystemClock_Config();
@@ -373,70 +528,31 @@ int main(void)
   log_uart_init();
   #endif
 
-  ch375_init();
+  devin_init();
 
   while (1) {
-    ret = ch375_host_wait_device_connect(ch375_ctx[i], 1000);
-    if (ret == CH375_HST_ERRNO_ERROR) {
-      ERROR("ch375 unkown error, need reset");
-      continue;
-    } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
-      ERROR("ch375 wait device connecetd timeout");
-      continue;
-    }
-    INFO("usb device connected");
+    INFO("start wait all DeviceIN connnect");
+    wait_all_in_device_connect();
 
-    ret = ch375_host_udev_open(ch375_ctx[i], &udev);
-    if (ret != CH375_HST_ERRNO_SUCCESS) {
-      ERROR("ch375 udev init failed, ret=%d", ret);
+    INFO("start to open all DeviceIN");
+    ret = open_all_device_in();
+    if (ret < 0) {
+      ERROR("open all DeviceIN failed");
       continue;
     }
-    INFO("udev init success");
 
-    ret = usbhid_open(&udev, 0, &hid_dev);
-    if (ret != USBHID_ERRNO_SUCCESS) {
-      ERROR("usbhid open failed(pvid=%04X:%04X, interface=%d), ret=%d",
-        udev.vid, udev.pid, 0, ret);
-      ch375_host_udev_close(&udev);
-      continue;
-    }
-    INFO("usbhid init success, hid_type=%d", hid_dev.hid_type);
+    // clone hid device report descriptor
+    INFO("open device out");
+    open_device_out();
 
-    if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
-      ret = hid_mouse_open(&hid_dev, &mouse);
-      if (ret != USBHID_ERRNO_SUCCESS) {
-        ERROR("HID mouse init failed, ret=%d", ret);
-        usbhid_close(&hid_dev);
-        ch375_host_udev_close(&udev);
-        continue;
-      }
-      INFO("1hid mouse init success");
-      break;
-    } else if (hid_dev.hid_type == USBHID_TYPE_KEYBOARD) {
-      ret = hid_keyboard_open(&hid_dev, &kbd);
-      if (ret != USBHID_ERRNO_SUCCESS) {
-        ERROR("HID keybaord init failed, ret=%d", ret);
-        usbhid_close(&hid_dev);
-        ch375_host_udev_close(&udev);
-        continue;
-      }
-      INFO("hid keyboard init success");
-      break;
-    } else {
-      usbhid_close(&hid_dev);
-      ch375_host_udev_close(&udev);
-    }
+    // Init USB DeviceOUT
+    MX_USB_DEVICE_Init();
+    HAL_Delay(10);
+
+    // Loop Handle DeviceIN
+    INFO("start loop handle devin");
+    loop_handle_devin();
   }
 
-  USBD_COMPOSITE_HID_InterfaceRegister(0, (uint8_t *)hid_dev.hid_desc, hid_dev.raw_hid_report_desc, hid_dev.raw_hid_report_desc_len, 8, 1);
-  USBD_COMPOSITE_HID_Init();
-
-  MX_USB_DEVICE_Init();
-
-  if (hid_dev.hid_type == USBHID_TYPE_MOUSE) {
-    loop_handle_mosue(&mouse);
-  } else {
-    loop_handle_keyboard(&kbd);
-  }
-  ERROR("go out from handle mouse loop");
+  return 0;
 }

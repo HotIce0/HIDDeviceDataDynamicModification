@@ -7,11 +7,13 @@ With this project, You can cheat in FPS games.
 - Y] HID Host Mouse
 - Y] HID Host Keyboard
 - Y] Optimize HID Host code
-- X] HID Device(composite device[mouse, keyboard])
-- T] Finish HID data transmission
-- T] HID data dynamic modification
-- T] HID Report Descriptor Clone
+- Y] HID Device(composite device[mouse, keyboard])
+- Y] Finish HID data (keyboard and mouse) transmission
+- Y] HID data dynamic modification
+- Y] HID Report Descriptor Clone
 - T] Optimize HID Device Code
+- T] Solve the problem that Initialization Delay of CH375 is not enough
+- T] define a level for timeout error log
 
 > Y: done
 > X: doing

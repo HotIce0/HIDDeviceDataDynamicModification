@@ -282,7 +282,7 @@ int ch375_host_bulk_transfer(USBDevice *udev,
 
         if (status == CH375_PID2STATUS(CH375_USB_PID_NAK)){
             if (timeout == 0) {
-                ERROR("send token(IN) to ep(0x%02X) timeout, status=0x%02X", ep, status);
+                // ERROR("send token(IN) to ep(0x%02X) timeout, status=0x%02X", ep, status); // TOTO
                 return CH375_HST_ERRNO_TIMEOUT;
             }
             timeout--;
