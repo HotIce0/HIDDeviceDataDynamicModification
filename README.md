@@ -65,3 +65,5 @@ With this project, You can cheat in FPS games.
 - CH375B
     - USART3
     - PE15     (Int Pin)
+- Log Out
+    - UART4

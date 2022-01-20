@@ -1,52 +1,39 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
-#include "main.h"
-#include "usb_device.h"
-
-/* Private includes ----------------------------------------------------------*/
 #include <assert.h>
+
 #define ENABLE_LOG
 // #define ENABLE_DEBUG
 #include "log.h"
 
-#include "usbd_customhid.h"
-#include "composite_hid.h"
 #include "ch375_usbhost.h"
 #include "hid/usbhid.h"
 #include "hid/hid_mouse.h"
 #include "hid/hid_keyboard.h"
 
+#include "usb_device.h"
+#include "usbd_customhid.h"
+#include "composite_hid.h"
 
-UART_HandleTypeDef huart4;
+#include "main.h"
 
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_UART4_Init(void);
 
 typedef struct CH375Priv {
   UART_HandleTypeDef *huart;
   GPIO_TypeDef *gpio_port_int;
   uint16_t gpio_pin_int;
 } CH375Priv;
+
+static UART_HandleTypeDef s_huart2; // ch375a
+static UART_HandleTypeDef s_huart3; // ch375b
+static UART_HandleTypeDef s_huart4; // log
+
+// CH375 CONFIG
+#define CH375_MODULE_NUM 2
+UART_HandleTypeDef *ch375_huart[CH375_MODULE_NUM] = {0};
+GPIO_TypeDef *ch375_int_port[CH375_MODULE_NUM] = {ch375a_int_GPIO_Port, ch375b_int_GPIO_Port};
+uint16_t ch375_int_pin[CH375_MODULE_NUM] = {ch375a_int_Pin, ch375b_int_Pin};
+CH375Priv ch375_priv[CH375_MODULE_NUM] = {0};
+CH375Context *ch375_ctx[CH375_MODULE_NUM] = {0};
+
 
 static int ch375_func_write_cmd(CH375Context *context, uint8_t cmd)
 {
@@ -110,7 +97,6 @@ static void loop_handle_keyboard(HIDKeyboard *dev)
 {
   USBHIDDevice *hiddev = dev->hid_dev;
   uint8_t *report_buf = NULL;
-  // uint32_t pressed;
   int ret;
 
   while (1) {
@@ -121,15 +107,9 @@ static void loop_handle_keyboard(HIDKeyboard *dev)
         return;
       }
     }
-
-
     (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
     
     USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
-    // hid_keyboard_get_key(dev, HID_KBD_LETTER('a'), &pressed, 0);
-    // if (pressed) {
-    //   INFO("Keyboard A is pressed");
-    // }
   }
 }
 
@@ -137,10 +117,7 @@ static void loop_handle_mosue(HIDMouse *dev)
 {
   USBHIDDevice *hiddev = dev->hid_dev;
   uint8_t *report_buf = NULL;
-  // int32_t x;
-  // int32_t y;
   int ret;
-  // int i;
 
   while (1) {
     ret = hid_mouse_fetch_report(dev);
@@ -150,65 +127,71 @@ static void loop_handle_mosue(HIDMouse *dev)
         return;
       }
     }
-
     (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
     
     USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report_buf, hiddev->report_length);
-
-    // // Button click check
-    // // hid_mouse_set_button(dev, HID_MOUSE_BUTTON_LEFT, 1, 0);
-    // for (i = 0; i < dev->button.count; i++) {
-    //   uint32_t is_pressed;
-    //   (void)hid_mouse_get_button(dev, i, &is_pressed, 0);
-    //   if (is_pressed) {
-    //     INFO("button %d is pressed", i);
-    //   }
-    // }
-    // // move print
-    // // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_X, 0x7FFF, 0);
-    // // hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_Y, 0x8001, 0);
-    // (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &x, 0);
-    // (void)hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_Y, &y, 0);
-    // if (!(x == 0 && y == 0)) {
-    //   INFO("mouse move(%d,%d)", x, y);
-    // }
   }
 }
 
-// CH375 CONFIG
-#define CH375_MODULE_NUM 2
+/**
+ * @brief 
+ * 
+ * @param huart 
+ * @param name 
+ * @param Instance 
+ * @param baudrate 
+ * @param eight_bits 1 eight bits, 0 nine bits 
+ * @param rx boolean
+ * @param tx boolean
+ */
+static void uart_init(UART_HandleTypeDef *huart, const char *name,
+  USART_TypeDef *Instance, uint32_t baudrate, uint8_t eight_bits, uint8_t rx, uint8_t tx)
+{
+  uint32_t mode = {0};
 
-USART_TypeDef *ch375_usart[CH375_MODULE_NUM] = {USART2, USART3};
-GPIO_TypeDef *ch375_int_port[CH375_MODULE_NUM] = {ch375a_int_GPIO_Port, ch375b_int_GPIO_Port};
-uint16_t ch375_int_pin[CH375_MODULE_NUM] = {ch375a_int_Pin, ch375b_int_Pin};
+  if (rx) {
+    mode |= UART_MODE_RX;
+  }
+  if (tx) {
+    mode |= UART_MODE_TX;
+  }
 
-UART_HandleTypeDef ch375_hhuarts[CH375_MODULE_NUM] = {0};
-CH375Priv ch375_priv[CH375_MODULE_NUM] = {0};
-CH375Context *ch375_ctx[CH375_MODULE_NUM] = {0};
+  huart->Instance = Instance;
+  huart->Init.BaudRate = baudrate;
+  huart->Init.WordLength = eight_bits ? UART_WORDLENGTH_8B: UART_WORDLENGTH_9B;
+  huart->Init.StopBits = UART_STOPBITS_1;
+  huart->Init.Parity = UART_PARITY_NONE;
+  huart->Init.Mode = mode;
+  huart->Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart->Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(huart) != HAL_OK)
+  {
+    ERROR("USART(%s) Init failed", name);
+    Error_Handler();
+  }
+}
+
+static void uart_deinit(UART_HandleTypeDef *huart, const char *name)
+{
+  if (HAL_UART_DeInit(huart) != HAL_OK) {
+    ERROR("USART(%s) deinit failed", name);
+    Error_Handler();
+  }
+}
 
 void ch375_init(void)
 {
   int i;
   int ret;
   // USART Init
-  for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ch375_hhuarts[i].Instance = ch375_usart[i];
-    ch375_hhuarts[i].Init.BaudRate = 9600;
-    ch375_hhuarts[i].Init.WordLength = UART_WORDLENGTH_9B;
-    ch375_hhuarts[i].Init.StopBits = UART_STOPBITS_1;
-    ch375_hhuarts[i].Init.Parity = UART_PARITY_NONE;
-    ch375_hhuarts[i].Init.Mode = UART_MODE_TX_RX;
-    ch375_hhuarts[i].Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    ch375_hhuarts[i].Init.OverSampling = UART_OVERSAMPLING_16;
-    if (HAL_UART_Init(&ch375_hhuarts[i]) != HAL_OK)
-    {
-      ERROR("USART(%d) Init failed", i);
-      Error_Handler();
-    }
-  }
+  uart_init(&s_huart2, "usart2", USART2, 9600, 0, 1, 1);
+  uart_init(&s_huart3, "usart3", USART3, 9600, 0, 1, 1);
+  ch375_huart[0] = &s_huart2;
+  ch375_huart[1] = &s_huart3;
+
   // Fill ch375_priv
   for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ch375_priv[i].huart = &ch375_hhuarts[i];
+    ch375_priv[i].huart = ch375_huart[i];
     ch375_priv[i].gpio_port_int = ch375_int_port[i];
     ch375_priv[i].gpio_pin_int = ch375_int_pin[i];
   }
@@ -236,9 +219,134 @@ void ch375_init(void)
 }
 
 /**
-  * @brief  The application entry point.
-  * @retval int
+  * @brief UART4 Initialization Function
+  * @param None
+  * @retval None
   */
+static void log_uart_init(void)
+{
+  uart_init(&s_huart4, "uart log", UART4, 115200, 1, 0, 1);
+  g_uart_log = &s_huart4;
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : user_btn_Pin */
+  GPIO_InitStruct.Pin = user_btn_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(user_btn_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ch375a_int_Pin */
+  GPIO_InitStruct.Pin = ch375a_int_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ch375a_int_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ch375b_int_Pin */
+  GPIO_InitStruct.Pin = ch375b_int_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ch375b_int_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : green_led_Pin orange_led_Pin red_led_Pin blue_led_Pin */
+  GPIO_InitStruct.Pin = green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+}
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+
+}
+#endif /* USE_FULL_ASSERT */
+
+
 int main(void)
 {
   int ret = -1;
@@ -247,19 +355,15 @@ int main(void)
   HIDMouse mouse = {0};
   HIDKeyboard kbd = {0};
   int i = 0;
-  /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
   SystemClock_Config();
   MX_GPIO_Init();
-
-  MX_UART4_Init(); // Log out
+  
   #ifdef ENABLE_LOG
-  g_uart_log = &huart4;
+  log_uart_init();
   #endif
 
-  /* Initialize all configured peripherals */
   ch375_init();
 
   while (1) {
@@ -326,151 +430,4 @@ int main(void)
     loop_handle_keyboard(&kbd);
   }
   ERROR("go out from handle mouse loop");
-
-   // TODO release
 }
-
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 168;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
-  * @brief UART4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_UART4_Init(void)
-{
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : user_btn_Pin */
-  GPIO_InitStruct.Pin = user_btn_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(user_btn_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ch375a_int_Pin */
-  GPIO_InitStruct.Pin = ch375a_int_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(ch375a_int_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ch375b_int_Pin */
-  GPIO_InitStruct.Pin = ch375b_int_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(ch375b_int_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : green_led_Pin orange_led_Pin red_led_Pin blue_led_Pin */
-  GPIO_InitStruct.Pin = green_led_Pin|orange_led_Pin|red_led_Pin|blue_led_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
-}
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
-}
-
-#ifdef  USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-}
-#endif /* USE_FULL_ASSERT */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
