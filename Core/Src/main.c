@@ -27,10 +27,13 @@ static UART_HandleTypeDef s_huart3; // ch375b
 static UART_HandleTypeDef s_huart4; // log
 
 // CH375 CONFIG
+#define CH375_WORK_BAUDRATE 115200
+#define CH375_DEFAULT_BAUDRATE 9600
 #define CH375_MODULE_NUM 2
-UART_HandleTypeDef *ch375_huart[CH375_MODULE_NUM] = {0};
 GPIO_TypeDef *ch375_int_port[CH375_MODULE_NUM] = {ch375a_int_GPIO_Port, ch375b_int_GPIO_Port};
 uint16_t ch375_int_pin[CH375_MODULE_NUM] = {ch375a_int_Pin, ch375b_int_Pin};
+
+UART_HandleTypeDef *ch375_huart[CH375_MODULE_NUM] = {0};
 CH375Priv ch375_priv[CH375_MODULE_NUM] = {0};
 CH375Context *ch375_ctx[CH375_MODULE_NUM] = {0};
 
@@ -183,11 +186,12 @@ void ch375_init(void)
 {
   int i;
   int ret;
-  // USART Init
-  uart_init(&s_huart2, "usart2", USART2, 9600, 0, 1, 1);
-  uart_init(&s_huart3, "usart3", USART3, 9600, 0, 1, 1);
+
   ch375_huart[0] = &s_huart2;
   ch375_huart[1] = &s_huart3;
+  // UART Init
+  uart_init(&s_huart2, "usart2", USART2, CH375_DEFAULT_BAUDRATE, 0, 1, 1);
+  uart_init(&s_huart3, "usart3", USART3, CH375_DEFAULT_BAUDRATE, 0, 1, 1);
 
   // Fill ch375_priv
   for (i = 0; i < CH375_MODULE_NUM; i++) {
@@ -210,12 +214,17 @@ void ch375_init(void)
   }
   // ch375 USB Host Init
   for (i = 0; i < CH375_MODULE_NUM; i++) {
-    ret = ch375_host_init(ch375_ctx[i]);
+    ret = ch375_host_init(ch375_ctx[i], CH375_WORK_BAUDRATE);
     if (ret != CH375_HST_ERRNO_SUCCESS) {
       ERROR("ch375(%d) init host failed, %d", i, ret);
       Error_Handler();
     }
   }
+  // reinit uart to work baudrate
+  uart_deinit(&s_huart2, "usart2");
+  uart_deinit(&s_huart3, "usart3");
+  uart_init(&s_huart2, "usart2", USART2, CH375_WORK_BAUDRATE, 0, 1, 1);
+  uart_init(&s_huart3, "usart3", USART3, CH375_WORK_BAUDRATE, 0, 1, 1);
 }
 
 /**

@@ -89,6 +89,6 @@ void ch375_host_udev_close(USBDevice *udev);
 int ch375_host_udev_open(CH375Context *context, USBDevice *udev);
 int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout);
 
-int ch375_host_init(CH375Context *context);
+int ch375_host_init(CH375Context *context, uint32_t work_baudrate);
 
 #endif /* CH375_USBHOST_H */

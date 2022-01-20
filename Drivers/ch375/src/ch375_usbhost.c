@@ -750,9 +750,21 @@ int ch375_host_wait_device_connect(CH375Context *context, uint32_t timeout)
     return CH375_HST_ERRNO_TIMEOUT;
 }
 
-int ch375_host_init(CH375Context *context)
+/**
+ * @brief 
+ * 
+ * @param context 
+ * @param work_baudrate default is 9600, high speed is 115200
+ * @return int 
+ */
+int ch375_host_init(CH375Context *context, uint32_t work_baudrate)
 {
     int ret;
+
+    if (work_baudrate != 9600 && work_baudrate != 115200) {
+        ERROR("param work_baudrate(%lu) is not support", work_baudrate);
+        return CH375_HST_ERRNO_PARAM_INVALID;
+    }
 
     INFO("delay 50ms before init");
     HAL_Delay(50); // wait ch375 init done
@@ -771,6 +783,13 @@ int ch375_host_init(CH375Context *context)
         return CH375_HST_ERRNO_ERROR;
     }
     INFO("set usb mode to Host, Auto-detection, No SOF");
+
+    ret = ch375_set_baudrate(context, work_baudrate);
+    if (ret != CH375_SUCCESS) {
+        ERROR("set work baudrate(%lu) failed", work_baudrate);
+        return CH375_HST_ERRNO_ERROR;
+    }
+    INFO("set work baudrate");
 
     return CH375_HST_ERRNO_SUCCESS;
 }
