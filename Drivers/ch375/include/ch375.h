@@ -75,6 +75,8 @@
 #define CH375_SET_RETRY_TIMES_INFINITY  0x02
 
 // Any Mode
+// @param baudrate, support 9600, 115200
+int ch375_set_baudrate(CH375Context *context, uint32_t baudrate);
 int ch375_query_int(CH375Context *context);
 int ch375_wait_int(CH375Context *context, uint32_t timeout);
 

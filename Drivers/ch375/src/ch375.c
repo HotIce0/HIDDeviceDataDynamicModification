@@ -12,25 +12,26 @@
 /**
  * @brief commands
  */
-#define CH375_CMD_GET_IC_VER 0x01
+#define CH375_CMD_GET_IC_VER    0x01
+#define CH375_CMD_SET_BAUDRATE  0x02
 #define CH375_CMD_SET_USB_SPEED 0x04
-#define CH375_CMD_CHECK_EXIST 0x06
+#define CH375_CMD_CHECK_EXIST   0x06
 #define	CH375_CMD_GET_DEV_RATE	0x0A
-#define	CH375_CMD_SET_RETRY 0x0B			/* 主机方式: 设置USB事务操作的重试次数 */
+#define	CH375_CMD_SET_RETRY     0x0B			/* 主机方式: 设置USB事务操作的重试次数 */
 #define	CH375_CMD_SET_USB_ADDR	0x13			/* 设置USB地址 */
-#define CH375_CMD_SET_USB_MODE 0x15
-#define CH375_CMD_TEST_CONNECT 0x16
-#define CH375_CMD_ABORT_NAK 0x17
-#define	CH375_CMD_SET_ENDP6	0x1C			/* 设置USB端点2/主机端点的接收器 */
-#define	CH375_CMD_SET_ENDP7	0x1D			/* 设置USB端点2/主机端点的发送器 */
-#define CH375_CMD_GET_STATUS 0x22
-#define	CH375_CMD_UNLOCK_USB 0x23		/* 设备方式: 释放当前USB缓冲区 */
-#define	CH375_CMD_RD_USB_DATA0 0x27			/* 从当前USB中断的端点缓冲区读取数据块 */
-#define	CH375_CMD_RD_USB_DATA 0x28		/* 从当前USB中断的端点缓冲区读取数据块, 并释放缓冲区, 相当于 CMD_RD_USB_DATA0 + CMD_UNLOCK_USB */
-#define	CH375_CMD_WR_USB_DATA7 0x2B			/* 向USB端点2或者主机端点的发送缓冲区写入数据块 */
-#define CH375_CMD_GET_DESC  0x46
-#define	CH375_CMD_ISSUE_TKN_X 0x4E			/* 主机方式: 发出同步令牌, 执行事务, 该命令可代替 CMD_SET_ENDP6/CMD_SET_ENDP7 + CMD_ISSUE_TOKEN */
-#define CH375_CMD_ISSUE_TOKEN 0x4F
+#define CH375_CMD_SET_USB_MODE  0x15
+#define CH375_CMD_TEST_CONNECT  0x16
+#define CH375_CMD_ABORT_NAK     0x17
+#define	CH375_CMD_SET_ENDP6	    0x1C			/* 设置USB端点2/主机端点的接收器 */
+#define	CH375_CMD_SET_ENDP7	    0x1D			/* 设置USB端点2/主机端点的发送器 */
+#define CH375_CMD_GET_STATUS    0x22
+#define	CH375_CMD_UNLOCK_USB    0x23		/* 设备方式: 释放当前USB缓冲区 */
+#define	CH375_CMD_RD_USB_DATA0  0x27			/* 从当前USB中断的端点缓冲区读取数据块 */
+#define	CH375_CMD_RD_USB_DATA   0x28		/* 从当前USB中断的端点缓冲区读取数据块, 并释放缓冲区, 相当于 CMD_RD_USB_DATA0 + CMD_UNLOCK_USB */
+#define	CH375_CMD_WR_USB_DATA7  0x2B			/* 向USB端点2或者主机端点的发送缓冲区写入数据块 */
+#define CH375_CMD_GET_DESC      0x46
+#define	CH375_CMD_ISSUE_TKN_X   0x4E			/* 主机方式: 发出同步令牌, 执行事务, 该命令可代替 CMD_SET_ENDP6/CMD_SET_ENDP7 + CMD_ISSUE_TOKEN */
+#define CH375_CMD_ISSUE_TOKEN   0x4F
 
 /**
  * @brief command result
@@ -208,6 +209,38 @@ int ch375_get_version(CH375Context *context, uint8_t *version)
     }
     // lower 6 bits is vesion, ref CH375DS1.PDF
     *version = 0x3F & buf;
+    return CH375_SUCCESS;
+}
+
+int ch375_set_baudrate(CH375Context *context, uint32_t baudrate)
+{
+    int ret;
+    uint8_t data1;
+    uint8_t data2;
+
+    if (baudrate == 9600) {
+        data1 = 0x02;
+        data2 = 0xB2;
+    } else if (baudrate == 115200) {
+        data1 = 0x03;
+        data2 = 0xCC;
+    } else {
+        ERROR("baudrate(%lu) not support", baudrate);
+        return CH375_PARAM_INVALID;
+    }
+
+    ret = ch375_write_cmd(context, CH375_CMD_SET_BAUDRATE);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
+    }
+    ret = ch375_write_data(context, data1);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
+    }
+    ret = ch375_write_data(context, data2);
+    if (ret != CH375_SUCCESS) {
+        return CH375_WRITE_CMD_FAILD;
+    }
     return CH375_SUCCESS;
 }
 
