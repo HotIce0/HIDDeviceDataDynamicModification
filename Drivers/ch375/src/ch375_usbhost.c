@@ -789,7 +789,8 @@ int ch375_host_init(CH375Context *context, uint32_t work_baudrate)
         ERROR("set work baudrate(%lu) failed", work_baudrate);
         return CH375_HST_ERRNO_ERROR;
     }
-    INFO("set work baudrate");
+    INFO("set work baudrate to %lu", work_baudrate);
+    HAL_Delay(5);
 
     return CH375_HST_ERRNO_SUCCESS;
 }
