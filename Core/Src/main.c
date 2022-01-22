@@ -497,6 +497,7 @@ static void wait_all_in_device_connect()
   
   while (1) {
     not_conn = 0;
+
     for (i = 0; i < CH375_MODULE_NUM; i++) {
       ret = ch375_host_wait_device_connect(s_arr_devin[i].ch375_ctx, 500);
       if (ret == CH375_HST_ERRNO_ERROR) {
@@ -504,12 +505,13 @@ static void wait_all_in_device_connect()
         not_conn = 1;
         continue;
       } else if (ret == CH375_HST_ERRNO_TIMEOUT) {
-        ERROR("ch375 wait device(%d) connecetd timeout");
+        ERROR("ch375 wait device(%d) connecetd timeout", i);
         not_conn = 1;
         continue;
       }
       INFO("usb device(%d) connected", i);
     }
+
     if (not_conn == 0) {
       break;
     }
