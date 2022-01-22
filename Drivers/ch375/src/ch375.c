@@ -419,12 +419,15 @@ int ch375_test_connect(CH375Context *context, uint8_t *connect_status)
     if (ret != CH375_SUCCESS) {
         return CH375_READ_DATA_FAILD;
     }
+
     DEBUG("test connect status=0x%02X", buf);
     // buf = CH375_USB_INT_CONNECT, CH375_H_INT_DISCONNECT, CH375_H_INT_USB_READY
-    assert(buf == CH375_USB_INT_DISCONNECT ||
-        buf == CH375_USB_INT_CONNECT || 
-        buf == CH375_USB_INT_USB_READY);
-
+    if (buf != CH375_USB_INT_DISCONNECT &&
+        buf != CH375_USB_INT_CONNECT &&
+        buf != CH375_USB_INT_USB_READY) {
+        buf = CH375_USB_INT_DISCONNECT;
+    }
+    
     if (buf == CH375_USB_INT_DISCONNECT) {
         (void)ch375_get_status(context, &status);
     }
