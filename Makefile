@@ -37,6 +37,7 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
+Core/Src/auto_gun_press.c \
 Core/Src/main.c \
 Core/Src/log.c \
 Core/Src/stm32f4xx_it.c \

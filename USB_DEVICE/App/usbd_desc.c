@@ -64,11 +64,11 @@
   * @{
   */
 
-#define USBD_VID     20852
-#define USBD_LANGID_STRING     1033
-#define USBD_MANUFACTURER_STRING     "Hotice0"
-#define USBD_PID_FS     30472
-#define USBD_PRODUCT_STRING_FS     "NoNoNo"
+#define USBD_VID     0x046D
+#define USBD_LANGID_STRING     0x0409
+#define USBD_MANUFACTURER_STRING     "Logitech"
+#define USBD_PID_FS     0x0400
+#define USBD_PRODUCT_STRING_FS     "G102 LIGHTSYNC Gaming Mouse"
 #define USBD_CONFIGURATION_STRING_FS     ""
 #define USBD_INTERFACE_STRING_FS     ""
 

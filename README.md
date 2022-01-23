@@ -14,6 +14,7 @@ With this project, You can cheat in FPS games.
 - T] Optimize HID Device Code
 - T] Solve the problem that Initialization Delay of CH375 is not enough
 - T] define a level for timeout error log
+- T] improve auto gun press data
 
 > Y: done
 > X: doing

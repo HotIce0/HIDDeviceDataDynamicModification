@@ -21,6 +21,9 @@ enum USBHID_ERRNO{
     USBHID_ERRNO_BUFFER_NOT_ALLOC = -10,
 };
 
+#define USBHID_NOW  0
+#define USBHID_LAST 1
+
 #pragma pack (push)
 #pragma pack (1)
 

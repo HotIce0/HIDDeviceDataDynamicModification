@@ -12,6 +12,7 @@
 #include "usb_device.h"
 #include "usbd_customhid.h"
 #include "composite_hid.h"
+#include "auto_gun_press.h"
 
 #include "main.h"
 
@@ -101,20 +102,55 @@ static int ch375_func_query_int(CH375Context *context)
   return val == 0 ? 1 : 0;
 }
 
-static int handle_keyboard(HIDKeyboard *dev, uint8_t interface_num)
+static uint8_t s_enable_gun_press = 0;
+static uint8_t s_started_gun_press = 0;
+static AGPContext *s_agp_ctx = NULL;
+
+#ifdef RECORD_SUPPORT
+
+#define RECORAD_BUFSIZE 20000
+static int32_t s_mouse_record_buffer[RECORAD_BUFSIZE];
+static uint32_t s_mouse_record_last_tick = 0;
+static uint32_t s_mouse_record_idx = 0;
+static uint8_t s_enable_mouse_recoard = 0;
+
+static void handle_recoard_gun_press(HIDMouse *dev)
 {
-  USBHIDDevice *hiddev = dev->hid_dev;
-  uint8_t *report_buf = NULL;
+  int32_t x, y;
+  hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &x, USBHID_NOW);
+  hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &y, USBHID_NOW);
+
+  s_mouse_record_buffer[s_mouse_record_idx] = x;
+  s_mouse_record_buffer[s_mouse_record_idx + 1] = y;
+  s_mouse_record_buffer[s_mouse_record_idx + 2] = (uint32_t)HAL_GetTick() - s_mouse_record_last_tick;
+  s_mouse_record_idx += 3;
+
+  s_mouse_record_last_tick =  HAL_GetTick();
+}
+#endif /* RECORD_SUPPORT */
+
+
+static int handle_auto_gun_press(HIDMouse *dev, uint8_t fetch_success)
+{
+  static AGPData data = {0};
   int ret;
-  ret = hid_keyboard_fetch_report(dev);
-  if (ret != USBHID_ERRNO_SUCCESS) {
-    // ERROR("fetch report failed, ret=%d", ret); // TOTO
-    return ret;
-  }
-  (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+  int32_t value;
   
-  USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);
-  return USBHID_ERRNO_SUCCESS;
+  ret = agp_get_data(s_agp_ctx, &data);
+  if (ret < 0) {
+    return -1;
+  }
+
+  if (fetch_success) {
+    hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_X, &value, USBHID_NOW);
+    data.x += value;
+    hid_mouse_get_orientation(dev, HID_MOUSE_AXIS_Y, &value, USBHID_NOW);    
+    data.y += value;
+  }
+
+  hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_X, data.x, USBHID_NOW);
+  hid_mouse_set_orientation(dev, HID_MOUSE_AXIS_Y, data.y, USBHID_NOW);
+  return 0;
 }
 
 static int handle_mosue(HIDMouse *dev, uint8_t interface_num)
@@ -122,13 +158,124 @@ static int handle_mosue(HIDMouse *dev, uint8_t interface_num)
   USBHIDDevice *hiddev = dev->hid_dev;
   uint8_t *report_buf = NULL;
   int ret;
+  uint32_t value;
+  uint8_t fetch_success = 0;
+  uint8_t need_send = 0;
 
   ret = hid_mouse_fetch_report(dev);
+  if (ret == USBHID_ERRNO_SUCCESS) {
+    fetch_success++;
+    need_send++;
+  }
+
+  (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, USBHID_NOW);
+
+  hid_mouse_get_button(dev, HID_MOUSE_BUTTON_LEFT, &value, USBHID_NOW);
+  if (value) {
+    if (s_started_gun_press == 0) {
+      s_started_gun_press = 1;
+      agp_restart(s_agp_ctx);
+    }
+  } else {
+    s_started_gun_press = 0;
+  }
+  
+  if (s_enable_gun_press && s_started_gun_press) {
+    #ifdef RECORD_SUPPORT
+    if (s_enable_mouse_recoard) {
+      // recoard
+      handle_recoard_gun_press(dev);
+    } else {
+      // press
+      ret = handle_auto_gun_press(dev, fetch_success);
+      if (ret == 0) {
+        need_send++;
+      }
+    }
+    #else
+    // press
+    ret = handle_auto_gun_press(dev, fetch_success);
+    if (ret == 0) {
+      need_send++;
+    }
+    #endif /* RECORD_SUPPORT */
+  }
+  
+  if (need_send) {
+    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);
+  }
+  return USBHID_ERRNO_SUCCESS;
+}
+
+#ifdef RECORD_SUPPORT
+void print_mouse_recoard()
+{
+  uint32_t i;
+
+  for (i = 0; i < s_mouse_record_idx; i+=3) {
+    printf2("%ld, %ld, %lu\r\n",
+      s_mouse_record_buffer[i],
+      s_mouse_record_buffer[i+1],
+      s_mouse_record_buffer[i+2]);
+  }
+}
+#endif /* RECORD_SUPPORT */
+
+static int handle_keyboard(HIDKeyboard *dev, uint8_t interface_num)
+{
+  USBHIDDevice *hiddev = dev->hid_dev;
+  uint8_t *report_buf = NULL;
+  int ret;
+  uint32_t value;
+
+  ret = hid_keyboard_fetch_report(dev);
   if (ret != USBHID_ERRNO_SUCCESS) {
     // ERROR("fetch report failed, ret=%d", ret); // TOTO
     return ret;
   }
   (void)usbhid_get_report_buffer(hiddev, &report_buf, NULL, 0);
+
+  #ifdef RECORD_SUPPORT
+  // check enable/disable gun press data record
+  hid_keyboard_get_key(dev, HID_KBD_LETTER('r'), &value, USBHID_NOW);
+  if (value) {
+    s_enable_mouse_recoard = 1;
+    s_mouse_record_last_tick = HAL_GetTick();
+  } else {
+    if (s_enable_mouse_recoard) {
+      print_mouse_recoard();
+    }
+    s_enable_mouse_recoard = 0;
+    s_mouse_record_idx = 0;
+  }
+  #endif /* RECORD_SUPPORT */
+
+  // check enable/disable Auto gun press
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(1), &value, USBHID_NOW);
+  if (value) {
+    s_enable_gun_press = 1;
+  }
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(2), &value, USBHID_NOW);
+  if (value) {
+    s_enable_gun_press = 0;
+  }
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(3), &value, USBHID_NOW);
+  if (value) {
+    s_enable_gun_press = 0;
+  }
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(4), &value, USBHID_NOW);
+  if (value) {
+    s_enable_gun_press = 0;
+  }
+
+  hid_keyboard_get_key(dev, HID_KBD_LETTER('n'), &value, USBHID_NOW);
+  if (value) {
+    agp_set_collect(s_agp_ctx, AGP_COLLECT_IDX_NONE);
+  }
+  hid_keyboard_get_key(dev, HID_KBD_LETTER('k'), &value, USBHID_NOW);
+  if (value) {
+    agp_set_collect(s_agp_ctx, AGP_COLLECT_IDX_AK);
+  }
   
   USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);
   return USBHID_ERRNO_SUCCESS;
@@ -138,6 +285,12 @@ static int loop_handle_devin()
 {
   int i;
   int ret;
+
+  ret = agp_open(&s_agp_ctx);
+  if (ret < 0) {
+    ERROR("agp open failed");
+    return -1;
+  }
 
   while (1) {
 
@@ -155,7 +308,7 @@ static int loop_handle_devin()
 
       if (ret == USBHID_ERRNO_NO_DEV) {
         ERROR("(%s) DeviceIN disconnected", devin->name);
-        return -1;
+        goto out;
       } else if (ret != USBHID_ERRNO_SUCCESS) {
         // ERROR("(%s) DeviceIN handle failed, ret=%d", devin->name, ret); // TOTO
         // TODO: retry max
@@ -163,6 +316,10 @@ static int loop_handle_devin()
     }
 
   }
+out:
+  agp_close(s_agp_ctx);
+  s_agp_ctx = NULL;
+  return -1;
 }
 
 /**
@@ -549,7 +706,6 @@ int main(void)
 
     // Init USB DeviceOUT
     MX_USB_DEVICE_Init();
-    HAL_Delay(10);
 
     // Loop Handle DeviceIN
     INFO("start loop handle devin");
