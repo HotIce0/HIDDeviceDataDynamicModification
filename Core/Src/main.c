@@ -135,7 +135,7 @@ static int handle_auto_gun_press(HIDMouse *dev, uint8_t fetch_success)
   static AGPData data = {0};
   int ret;
   int32_t value;
-  
+
   ret = agp_get_data(s_agp_ctx, &data);
   if (ret < 0) {
     return -1;
@@ -274,7 +274,31 @@ static int handle_keyboard(HIDKeyboard *dev, uint8_t interface_num)
   }
   hid_keyboard_get_key(dev, HID_KBD_LETTER('k'), &value, USBHID_NOW);
   if (value) {
-    agp_set_collect(s_agp_ctx, AGP_COLLECT_IDX_AK);
+    agp_set_collect(s_agp_ctx, AGP_COLLECT_IDX_AK47);
+  }
+  hid_keyboard_get_key(dev, HID_KBD_LETTER('m'), &value, USBHID_NOW);
+  if (value) {
+    agp_set_collect(s_agp_ctx, AGP_COLLECT_IDX_M4A4);
+  }
+
+  // coefficient - +
+  hid_keyboard_get_key(dev, HID_KBD_EQUAL, &value, USBHID_NOW);
+  if (value) {
+    agp_coefficient_change(s_agp_ctx, 1);
+  }
+  hid_keyboard_get_key(dev, HID_KBD_MINUS, &value, USBHID_NOW);
+  if (value) {
+    agp_coefficient_change(s_agp_ctx, 0);
+  }
+
+  // sensitive 9 0
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(0), &value, USBHID_NOW);
+  if (value) {
+    agp_sensitive_change(s_agp_ctx, 1);
+  }
+  hid_keyboard_get_key(dev, HID_KBD_NUMBER(9), &value, USBHID_NOW);
+  if (value) {
+    agp_sensitive_change(s_agp_ctx, 0);
   }
   
   USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, interface_num, report_buf, hiddev->report_length);

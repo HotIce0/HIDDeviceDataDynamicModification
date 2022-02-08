@@ -11,7 +11,7 @@
 #include "hid/usbhid.h"
 
 // ms
-#define TRANSFER_TIMEOUT 1
+#define TRANSFER_TIMEOUT 0
 
 
 // HID Class-Specific Requests values. See section 7.2 of the HID specifications
