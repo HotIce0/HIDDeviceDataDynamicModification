@@ -99,6 +99,11 @@ int agp_get_data(AGPContext *context, AGPData *data)
         return -1;
     }
 
+    if (context->arr_index >= context->arr_length) {
+        // out of range
+        return -1;
+    }
+
     if (HAL_GetTick() > context->last_tick_ms + context->arr_ts[context->arr_index]) {
         context->last_tick_ms += context->arr_ts[context->arr_index];
 
